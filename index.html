@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A Segunda Lei - Tracker de Entropia</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-brand">
+                <svg class="logo" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="2" y="2" width="11" height="11" rx="2" fill="url(#gradient1)"/>
+                    <rect x="15" y="2" width="11" height="11" rx="2" fill="url(#gradient2)"/>
+                    <rect x="28" y="2" width="11" height="11" rx="2" fill="url(#gradient3)"/>
+                    <rect x="2" y="15" width="11" height="11" rx="2" fill="url(#gradient4)"/>
+                    <rect x="15" y="15" width="11" height="11" rx="2" fill="url(#gradient5)"/>
+                    <rect x="28" y="15" width="11" height="11" rx="2" fill="url(#gradient6)"/>
+                    <rect x="2" y="28" width="11" height="11" rx="2" fill="url(#gradient7)"/>
+                    <rect x="15" y="28" width="11" height="11" rx="2" fill="url(#gradient8)"/>
+                    <rect x="28" y="28" width="11" height="11" rx="2" transform="rotate(8 34 34)" fill="url(#gradient9)"/>
+                    <defs>
+                        <linearGradient id="gradient1" x1="2" y1="2" x2="13" y2="13" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#95d3ee"/>
+                            <stop offset="1" stop-color="#6bb8d9"/>
+                        </linearGradient>
+                        <linearGradient id="gradient2" x1="15" y1="2" x2="26" y2="13" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#6bb8d9"/>
+                            <stop offset="1" stop-color="#4a9cc4"/>
+                        </linearGradient>
+                        <linearGradient id="gradient3" x1="28" y1="2" x2="39" y2="13" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4a9cc4"/>
+                            <stop offset="1" stop-color="#2980af"/>
+                        </linearGradient>
+                        <linearGradient id="gradient4" x1="2" y1="15" x2="13" y2="26" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#6bb8d9"/>
+                            <stop offset="1" stop-color="#4a9cc4"/>
+                        </linearGradient>
+                        <linearGradient id="gradient5" x1="15" y1="15" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4a9cc4"/>
+                            <stop offset="1" stop-color="#2980af"/>
+                        </linearGradient>
+                        <linearGradient id="gradient6" x1="28" y1="15" x2="39" y2="26" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#2980af"/>
+                            <stop offset="1" stop-color="#1c567e"/>
+                        </linearGradient>
+                        <linearGradient id="gradient7" x1="2" y1="28" x2="13" y2="39" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4a9cc4"/>
+                            <stop offset="1" stop-color="#2980af"/>
+                        </linearGradient>
+                        <linearGradient id="gradient8" x1="15" y1="28" x2="26" y2="39" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#2980af"/>
+                            <stop offset="1" stop-color="#1c567e"/>
+                        </linearGradient>
+                        <linearGradient id="gradient9" x1="28" y1="28" x2="39" y2="39" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#1c567e"/>
+                            <stop offset="1" stop-color="#042235"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <h1 class="header-title">A Segunda Lei</h1>
+            </div>
+            <div class="header-actions">
+                <button class="btn-nav-header" id="btnToday" data-view="today">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="16" y1="2" x2="16" y2="6"></line>
+                        <line x1="8" y1="2" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    <span>Hoje</span>
+                </button>
+                <button class="btn-nav-header" id="btnHistory" data-view="history">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    <span>Histórico</span>
+                </button>
+                <button class="btn-nav-header" id="btnReports" data-view="reports">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    <span>Relatórios</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content" id="mainContent">
+            <!-- Today View -->
+            <div class="view" id="todayView">
+                <div class="date-selector">
+                    <button class="btn-nav" id="btnPrevDay">←</button>
+                    <h2 id="currentDate"></h2>
+                    <button class="btn-nav" id="btnNextDay">→</button>
+                </div>
+
+                <!-- Quick Navigation -->
+                <div class="quick-nav">
+                    <button class="btn-quick-nav" data-target="category-clientes">👥 Clientes</button>
+                    <button class="btn-quick-nav" data-target="category-categorias">🏢 Empresa</button>
+                    <button class="btn-quick-nav" data-target="category-atividades">👤 Pessoal</button>
+                </div>
+
+                <div class="categories-container">
+                    <!-- Clientes -->
+                    <div class="category" id="category-clientes">
+                        <h3 class="category-title">👥 CLIENTES</h3>
+                        <div class="items-list" id="clientesList"></div>
+                    </div>
+
+                    <!-- Empresa -->
+                    <div class="category" id="category-categorias">
+                        <h3 class="category-title">🏢 EMPRESA</h3>
+                        <div class="items-list" id="categoriasList"></div>
+                    </div>
+
+                    <!-- Pessoal -->
+                    <div class="category" id="category-atividades">
+                        <h3 class="category-title">👤 PESSOAL</h3>
+                        <div class="items-list" id="atividadesList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History View -->
+            <div class="view hidden" id="historyView">
+                <div class="history-filter-bar">
+                    <div class="history-filter-controls">
+                        <!-- Custom Period Selector -->
+                        <div class="period-selector-wrapper">
+                            <button class="period-selector-btn" id="periodSelectorBtn">
+                                <span class="period-selector-label" id="periodSelectorLabel">Últimos 7 dias</span>
+                                <svg width="12" height="8" viewBox="0 0 12 8" fill="none">
+                                    <path d="M1 1L6 6L11 1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <div class="period-dropdown hidden" id="periodDropdown">
+                                <button class="period-option" data-type="week">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                    <span>📅 Esta semana</span>
+                                </button>
+                                <button class="period-option active" data-days="7">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                    <span>Últimos 7 dias</span>
+                                </button>
+                                <button class="period-option" data-days="14">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                    <span>14 dias</span>
+                                </button>
+                                <button class="period-option" data-days="30">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                    <span>30 dias</span>
+                                </button>
+                                <button class="period-option" data-type="month">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                    <span>📆 Este mês</span>
+                                </button>
+                                <button class="period-option" data-days="60">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                    <span>60 dias</span>
+                                </button>
+                                <button class="period-option" data-days="90">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
+                                    </svg>
+                                    <span>90 dias</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="date-picker-wrapper">
+                            <input type="date" id="specificDate" class="filter-date" />
+                            <button class="btn-clear-date hidden" id="btnClearDate" title="Limpar data">✕</button>
+                        </div>
+                        <label class="toggle-empty-switch">
+                            <span>mostrar vazios</span>
+                            <div class="switch-container">
+                                <input type="checkbox" id="toggleEmptyItems" />
+                                <span class="switch-slider"></span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Quick Navigation for History -->
+                <div class="quick-nav quick-nav-history">
+                    <button class="btn-quick-nav-history" data-category="clientes">👥 Clientes</button>
+                    <button class="btn-quick-nav-history" data-category="categorias">🏢 Empresa</button>
+                    <button class="btn-quick-nav-history" data-category="atividades">👤 Pessoal</button>
+                </div>
+                
+                <div id="historyContent"></div>
+            </div>
+
+            <!-- Reports View -->
+            <div class="view hidden" id="reportsView">
+                <h2>📈 Relatórios de Desempenho</h2>
+                <div class="report-controls">
+                    <button class="btn-period active" data-period="week">Semanal</button>
+                    <button class="btn-period" data-period="month">Mensal</button>
+                    <button class="btn-period" data-period="year">Anual</button>
+                    <button class="btn-period" data-period="all">Geral</button>
+                </div>
+                <div id="reportsContent"></div>
+            </div>
+        </main>
+
+        <!-- Item Edit Modal -->
+        <div class="modal hidden" id="itemModal">
+            <div class="modal-content modal-large">
+                <h3 id="modalTitle"></h3>
+                
+                <!-- Status Selection -->
+                <div class="modal-section">
+                    <label class="modal-label">Status</label>
+                    <select id="statusSelect" class="status-dropdown">
+                        <option value="none">⚪ Selecione um status</option>
+                        <option value="em-andamento">🟡 Em andamento</option>
+                        <option value="bloqueado">🟣 Bloqueado</option>
+                        <option value="concluido">🟢 Concluído</option>
+                        <option value="aguardando">🔵 Aguardando</option>
+                        <option value="nao-feito">🔴 Não feito</option>
+                        <option value="pular">⚪ Pular</option>
+                        <option value="concluido-ongoing">🔷 Concluído/On going time</option>
+                        <option value="parcialmente">🟢 Parcialmente concluído</option>
+                        <option value="prioridade">⚫ Prioridade</option>
+                    </select>
+                </div>
+
+                <!-- Notes Section -->
+                <div class="modal-section">
+                    <label class="modal-label">📝 Nota diária</label>
+                    <textarea 
+                        id="itemNote" 
+                        class="note-textarea" 
+                        placeholder="Escreva suas notas aqui... Você pode incluir links (https://exemplo.com)"
+                        rows="6"
+                    ></textarea>
+                    <div class="note-hint">💡 Links serão automaticamente clicáveis ao visualizar</div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="modal-actions">
+                    <button class="btn-save" id="btnSaveModal">💾 Salvar</button>
+                    <button class="btn-cancel" id="btnCancelModal">❌ Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="confirm-modal" id="confirmModal">
+        <div class="confirm-content">
+            <div class="confirm-icon">⚠️</div>
+            <h3 class="confirm-title" id="confirmTitle">Confirmar ação</h3>
+            <p class="confirm-message" id="confirmMessage">Tem certeza?</p>
+            <div class="confirm-actions">
+                <button class="btn-confirm-yes" id="btnConfirmYes">✓ Sim</button>
+                <button class="btn-confirm-no" id="btnConfirmNo">✗ Não</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="data.js"></script>
+    <script src="storage.js"></script>
+    <script src="app.js"></script>
+    <script async src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</body>
+</html>
