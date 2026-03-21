@@ -3,31 +3,46 @@
 // ============================================
 
 let currentUser = null;
+let supabaseClient = null;
 
 // Verificar autenticação imediatamente
-(async function checkAuth() {
-    const { data: { session } } = await supabase.auth.getSession();
+window.addEventListener('load', async function checkAuth() {
+    // Inicializar Supabase
+    supabaseClient = window.getSupabaseClient();
     
-    if (!session) {
-        // Não está autenticado, redirecionar para login
+    if (!supabaseClient) {
+        console.error('Erro ao inicializar Supabase');
         window.location.href = 'index.html';
         return;
     }
     
-    // Usuário autenticado
-    currentUser = session.user;
-    updateUserInfo();
-    
-    // Listener para mudanças de autenticação
-    supabase.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_OUT' || !session) {
-            // Logout ou sessão expirada
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        
+        if (!session) {
+            // Não está autenticado, redirecionar para login
             window.location.href = 'index.html';
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-            currentUser = session.user;
-            updateUserInfo();
+            return;
         }
-    });
+        
+        // Usuário autenticado
+        currentUser = session.user;
+        updateUserInfo();
+        
+        // Listener para mudanças de autenticação
+        supabaseClient.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_OUT' || !session) {
+                // Logout ou sessão expirada
+                window.location.href = 'index.html';
+            } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                currentUser = session.user;
+                updateUserInfo();
+            }
+        });
+    } catch (error) {
+        console.error('Erro ao verificar autenticação:', error);
+        window.location.href = 'index.html';
+    }
 })();
 
 // Atualizar informações do usuário na UI
@@ -53,12 +68,14 @@ function getCurrentUserEmail() {
 
 // Botão de Logout
 document.getElementById('btnLogout')?.addEventListener('click', async () => {
+    if (!supabaseClient) return;
+    
     if (confirm('Deseja realmente sair?')) {
         try {
             // Limpar dados locais antes de fazer logout
             localStorage.clear();
             
-            const { error } = await supabase.auth.signOut();
+            const { error } = await supabaseClient.auth.signOut();
             if (error) throw error;
             
             // Redirecionar para login

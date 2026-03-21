@@ -2,15 +2,38 @@
 // LOGIN.JS - Autenticação separada do app
 // ============================================
 
-// Verificar se já está autenticado ao carregar a página
-document.addEventListener('DOMContentLoaded', async () => {
-    // Verificar sessão existente
-    const { data: { session } } = await supabase.auth.getSession();
+// Obter cliente Supabase
+let supabaseClient = null;
+
+// Aguardar carregamento completo
+window.addEventListener('load', async () => {
+    // Inicializar Supabase
+    supabaseClient = window.getSupabaseClient();
     
-    if (session) {
-        // Já está logado, redirecionar para o app
-        window.location.href = 'app.html';
+    if (!supabaseClient) {
+        console.error('Erro ao inicializar Supabase');
+        showMessage('error', 'Erro ao carregar. Recarregue a página.');
+        return;
     }
+    
+    // Verificar sessão existente
+    try {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        
+        if (session) {
+            // Já está logado, redirecionar para o app
+            window.location.href = 'app.html';
+        }
+    } catch (error) {
+        console.error('Erro ao verificar sessão:', error);
+    }
+    
+    // Listener para mudanças de autenticação
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN' && session) {
+            window.location.href = 'app.html';
+        }
+    });
 });
 
 // Alternar entre login e cadastro
@@ -37,6 +60,11 @@ showSignInBtn?.addEventListener('click', (e) => {
 document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
+    if (!supabaseClient) {
+        showMessage('error', 'Sistema não inicializado. Recarregue a página.');
+        return;
+    }
+    
     const email = document.getElementById('loginEmail').value.trim();
     const password = document.getElementById('loginPassword').value;
     const submitBtn = e.target.querySelector('button[type="submit"]');
@@ -53,7 +81,7 @@ document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
     submitBtn.textContent = '';
 
     try {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
             email: email,
             password: password
         });
@@ -89,6 +117,11 @@ document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
 document.getElementById('registerForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
+    if (!supabaseClient) {
+        showMessage('error', 'Sistema não inicializado. Recarregue a página.');
+        return;
+    }
+    
     const name = document.getElementById('registerName').value.trim();
     const email = document.getElementById('registerEmail').value.trim();
     const password = document.getElementById('registerPassword').value;
@@ -122,7 +155,7 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
     submitBtn.textContent = '';
 
     try {
-        const { data, error } = await supabase.auth.signUp({
+        const { data, error } = await supabaseClient.auth.signUp({
             email: email,
             password: password,
             options: {
@@ -168,6 +201,11 @@ document.getElementById('registerForm')?.addEventListener('submit', async (e) =>
 document.getElementById('forgotPassword')?.addEventListener('click', async (e) => {
     e.preventDefault();
     
+    if (!supabaseClient) {
+        alert('Sistema não inicializado. Recarregue a página.');
+        return;
+    }
+    
     const email = prompt('Digite seu email para recuperação de senha:');
     
     if (!email) return;
@@ -178,7 +216,7 @@ document.getElementById('forgotPassword')?.addEventListener('click', async (e) =
     }
 
     try {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
             redirectTo: window.location.origin + '/app.html'
         });
 
@@ -224,10 +262,3 @@ function isValidEmail(email) {
     const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return regex.test(email);
 }
-
-// Listener para mudanças de autenticação
-supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session) {
-        window.location.href = 'app.html';
-    }
-});
