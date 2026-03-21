@@ -5,8 +5,41 @@
 let currentUser = null;
 let supabaseClient = null;
 
+// Esperar biblioteca Supabase carregar
+function waitForSupabase() {
+    return new Promise((resolve) => {
+        if (typeof supabase !== 'undefined') {
+            resolve(true);
+        } else {
+            const checkInterval = setInterval(() => {
+                if (typeof supabase !== 'undefined') {
+                    clearInterval(checkInterval);
+                    resolve(true);
+                }
+            }, 100);
+            
+            // Timeout após 5 segundos
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                resolve(false);
+            }, 5000);
+        }
+    });
+}
+
 // Verificar autenticação imediatamente
 window.addEventListener('load', async function checkAuth() {
+    console.log('=== APP-AUTH.JS CARREGADO ===');
+    
+    // Esperar Supabase carregar
+    const supabaseLoaded = await waitForSupabase();
+    
+    if (!supabaseLoaded) {
+        console.error('Timeout: Biblioteca Supabase não carregou');
+        window.location.href = 'index.html';
+        return;
+    }
+    
     // Inicializar Supabase
     supabaseClient = window.getSupabaseClient();
     
@@ -16,21 +49,26 @@ window.addEventListener('load', async function checkAuth() {
         return;
     }
     
+    console.log('Cliente Supabase inicializado no app');
+    
     try {
         const { data: { session } } = await supabaseClient.auth.getSession();
         
         if (!session) {
             // Não está autenticado, redirecionar para login
+            console.log('Sem sessão, redirecionando para login');
             window.location.href = 'index.html';
             return;
         }
         
         // Usuário autenticado
+        console.log('Usuário autenticado:', session.user.email);
         currentUser = session.user;
         updateUserInfo();
         
         // Listener para mudanças de autenticação
         supabaseClient.auth.onAuthStateChange((event, session) => {
+            console.log('Auth State Changed:', event);
             if (event === 'SIGNED_OUT' || !session) {
                 // Logout ou sessão expirada
                 window.location.href = 'index.html';

@@ -2,9 +2,41 @@
 // LOGIN.JS - Autenticação separada do app
 // ============================================
 
+// Esperar biblioteca Supabase carregar
+function waitForSupabase() {
+    return new Promise((resolve) => {
+        if (typeof supabase !== 'undefined') {
+            resolve(true);
+        } else {
+            const checkInterval = setInterval(() => {
+                if (typeof supabase !== 'undefined') {
+                    clearInterval(checkInterval);
+                    resolve(true);
+                }
+            }, 100);
+            
+            // Timeout após 5 segundos
+            setTimeout(() => {
+                clearInterval(checkInterval);
+                resolve(false);
+            }, 5000);
+        }
+    });
+}
+
 // Aguardar carregamento completo
 window.addEventListener('load', async () => {
     console.log('=== LOGIN.JS CARREGADO ===');
+    
+    // Esperar Supabase carregar
+    const supabaseLoaded = await waitForSupabase();
+    
+    if (!supabaseLoaded) {
+        console.error('Timeout: Biblioteca Supabase não carregou');
+        alert('Erro ao carregar. Por favor, recarregue a página.');
+        return;
+    }
+    
     console.log('Supabase global:', typeof supabase);
     console.log('getSupabaseClient:', typeof window.getSupabaseClient);
     
