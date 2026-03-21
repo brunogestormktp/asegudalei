@@ -114,6 +114,27 @@ body {
 .header-actions {
     display: flex;
     gap: 8px;
+    align-items: center;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px;
+    background: rgba(149, 211, 238, 0.1);
+    border-radius: 12px;
+    margin-right: 8px;
+}
+
+.user-email {
+    font-family: 'Quicksand', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-80);
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .btn-nav-header {
@@ -131,6 +152,17 @@ body {
     cursor: pointer;
     transition: all 0.3s ease;
     white-space: nowrap;
+}
+
+.btn-nav-header.btn-logout {
+    background: rgba(239, 68, 68, 0.1);
+    color: #f87171;
+    margin-left: 4px;
+}
+
+.btn-nav-header.btn-logout:hover {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
 }
 
 .btn-nav-header svg {
