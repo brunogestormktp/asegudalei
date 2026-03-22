@@ -99,7 +99,7 @@ class HabitTrackerApp {
             wordCountEl.textContent = '0';
             wordCountEl.classList.remove('over-limit');
             input.classList.remove('over-limit');
-            btnSave.disabled = false;
+            btnSave.disabled = true;
             modal.classList.add('show');
 
             // Auto-focus input after animation
@@ -110,10 +110,10 @@ class HabitTrackerApp {
             const onInput = () => {
                 const chars = countChars(input.value);
                 wordCountEl.textContent = chars;
-                const over = chars > 10;
-                wordCountEl.classList.toggle('over-limit', over);
-                input.classList.toggle('over-limit', over);
-                btnSave.disabled = over;
+                const enough = chars >= 10;
+                wordCountEl.classList.toggle('over-limit', !enough && chars > 0);
+                input.classList.remove('over-limit');
+                btnSave.disabled = !enough;
             };
             input.addEventListener('input', onInput);
 
@@ -127,7 +127,7 @@ class HabitTrackerApp {
 
             const handleSave = async () => {
                 const text = input.value.trim();
-                if (!text || countChars(text) > 10) return;
+                if (!text || countChars(text) < 10) return;
                 cleanup();
                 // Save to aprendizados tab
                 if (typeof Aprendizados !== 'undefined' && text) {

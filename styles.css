@@ -3142,7 +3142,7 @@ body {
     transition: color 0.2s;
 }
 .aprend-popup-wordcount.over-limit {
-    color: rgba(239, 68, 68, 0.85);
+    color: rgba(239, 68, 68, 0.75); /* vermelho = ainda não atingiu mínimo */
 }
 .aprend-popup-actions {
     display: flex;
