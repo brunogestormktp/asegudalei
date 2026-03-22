@@ -133,6 +133,27 @@
                     <button class="btn-quick-nav" data-target="category-atividades">👤 Pessoal</button>
                 </div>
 
+                <!-- Status Filter -->
+                <div class="today-status-filter" id="todayStatusFilter">
+                    <div class="tsf-search-wrap" id="todaySearchWrap">
+                        <button class="tsf-search-icon-btn" id="todaySearchToggle" title="Pesquisar demandas">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </button>
+                        <input type="text" class="tsf-search-input" id="todaySearchInput" placeholder="Pesquisar…" autocomplete="off" />
+                        <button class="tsf-search-clear" id="todaySearchClear" title="Limpar">✕</button>
+                    </div>
+                    <button class="tsf-btn tsf-active" data-status="all">Todos</button>
+                    <button class="tsf-btn" data-status="none">Sem status</button>
+                    <button class="tsf-btn" data-status="prioridade">Prioridade</button>
+                    <button class="tsf-btn" data-status="em-andamento">Em andamento</button>
+                    <button class="tsf-btn" data-status="concluido">Concluído</button>
+                    <button class="tsf-btn" data-status="parcialmente">Parcialmente</button>
+                    <button class="tsf-btn" data-status="aguardando">Aguardando</button>
+                    <button class="tsf-btn" data-status="nao-feito">Não feito</button>
+                    <button class="tsf-btn" data-status="bloqueado">Bloqueado</button>
+                    <button class="tsf-btn" data-status="pular">Pular</button>
+                </div>
+
                 <div class="categories-container">
                     <!-- Clientes -->
                     <div class="category" id="category-clientes">

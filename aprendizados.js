@@ -1118,6 +1118,17 @@ const Aprendizados = (() => {
 
     function onHide() { _flushNote(); }
 
+    // openItem — API pública: navega direto para o item na aba aprendizados
+    function openItem(category, itemId) {
+        _flushNote();
+        nav.category = category;
+        nav.itemId   = itemId;
+        nav.noteId   = null;
+        renderFolders();
+        renderSubfolders();
+        navigateTo('notes');
+    }
+
     // addQuickEntry — API pública: salva um aprendizado rápido vindo do popup de conclusão
     // Cria uma nova nota no item com o texto como conteúdo
     function addQuickEntry(category, itemId, itemName, text) {
@@ -1134,6 +1145,6 @@ const Aprendizados = (() => {
         saveNote(category, itemId, note);
     }
 
-    return { init, onShow, onHide, setLineChecked, addQuickEntry };
+    return { init, onShow, onHide, setLineChecked, addQuickEntry, openItem };
 })();
 

@@ -21,11 +21,97 @@ class HabitTrackerApp {
     init() {
         this.setupEventListeners();
         this.initSpeech();
+        this._syncHeaderHeight();
+        window.addEventListener('resize', () => this._syncHeaderHeight());
         this.renderTodayView();
         // Se havia um re-render pendente (sync do Supabase chegou antes do app inicializar)
         if (window._pendingRerender) {
             window._pendingRerender = false;
             this.renderCurrentView();
+        }
+        // Verifica se houve virada de dia perdida e agenda rollover da meia-noite
+        this._checkMissedRollover();
+        this._scheduleMidnightRollover();
+    }
+
+    // ── Rollover de meia-noite ────────────────────────────────────────────
+    // Ao virar 00:00, marca como "não feito" todos os itens que ficaram
+    // com status "nenhum" no dia que acabou de passar.
+    async _markPendingAsNotDone(dateStr) {
+        const categories = [
+            { key: 'clientes',   items: APP_DATA.clientes   },
+            { key: 'categorias', items: APP_DATA.categorias },
+            { key: 'atividades', items: APP_DATA.atividades },
+        ];
+        let changed = false;
+        for (const { key, items } of categories) {
+            for (const item of (items || [])) {
+                const data = await StorageManager.getItemStatus(dateStr, key, item.id);
+                if (!data.status || data.status === 'none') {
+                    await StorageManager.saveItemStatus(dateStr, key, item.id, 'nao-feito', data.note || '');
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            console.log(`⏰ Rollover meia-noite: itens sem status do dia ${dateStr} marcados como não feito.`);
+        }
+    }
+
+    // Verifica se o app ficou aberto e passou por uma virada de dia sem processar
+    async _checkMissedRollover() {
+        const lastKey = 'ht-last-active-date';
+        const today = new Date();
+        const todayStr = this.getDateString(today);
+        const lastDate = localStorage.getItem(lastKey);
+
+        if (lastDate && lastDate !== todayStr) {
+            // Houve virada de dia(s) perdida — marcar o dia anterior
+            await this._markPendingAsNotDone(lastDate);
+        }
+        localStorage.setItem(lastKey, todayStr);
+    }
+
+    // Agenda execução exatamente à meia-noite e repete a cada dia
+    _scheduleMidnightRollover() {
+        const now = new Date();
+        const nextMidnight = new Date(
+            now.getFullYear(), now.getMonth(), now.getDate() + 1,
+            0, 0, 0, 0
+        );
+        const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+
+        this._midnightTimer = setTimeout(async () => {
+            // O dia que acabou de passar
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = this.getDateString(yesterday);
+
+            await this._markPendingAsNotDone(yesterdayStr);
+
+            // Atualiza a data ativa registrada
+            localStorage.setItem('ht-last-active-date', this.getDateString(new Date()));
+
+            // Re-renderiza se estiver na view de hoje
+            if (this.currentView === 'today') {
+                this.currentDate = new Date();
+                this.renderTodayView();
+            }
+
+            // Reagenda para a próxima meia-noite
+            this._scheduleMidnightRollover();
+        }, msUntilMidnight);
+
+        console.log(`⏰ Rollover agendado em ${Math.round(msUntilMidnight / 1000 / 60)} minutos.`);
+    }
+
+    // Mede a altura real do .header e seta --header-h no :root
+    // Garante que o date-selector sticky nunca fique sob o header
+    _syncHeaderHeight() {
+        const headerEl = document.querySelector('.header');
+        if (headerEl) {
+            const h = headerEl.getBoundingClientRect().height;
+            document.documentElement.style.setProperty('--header-h', Math.round(h) + 'px');
         }
     }
 
@@ -349,6 +435,58 @@ class HabitTrackerApp {
         // Date navigation
         document.getElementById('btnPrevDay').addEventListener('click', () => this.changeDate(-1));
         document.getElementById('btnNextDay').addEventListener('click', () => this.changeDate(1));
+
+        // Today status filter
+        document.getElementById('todayStatusFilter').addEventListener('click', (e) => {
+            const btn = e.target.closest('.tsf-btn');
+            if (!btn) return;
+            document.querySelectorAll('.tsf-btn').forEach(b => b.classList.remove('tsf-active'));
+            btn.classList.add('tsf-active');
+            this._activeTodayFilter = btn.dataset.status;
+            this._applyTodayFilter();
+        });
+
+        // Today search
+        const searchToggle = document.getElementById('todaySearchToggle');
+        const searchInput  = document.getElementById('todaySearchInput');
+        const searchClear  = document.getElementById('todaySearchClear');
+        const searchWrap   = document.getElementById('todaySearchWrap');
+
+        searchToggle.addEventListener('click', () => {
+            const isOpen = searchWrap.classList.toggle('tsf-search-open');
+            if (isOpen) {
+                searchInput.focus();
+            } else {
+                searchInput.value = '';
+                this._todaySearchQuery = '';
+                searchClear.style.display = 'none';
+                this._applyTodayFilter();
+            }
+        });
+
+        searchInput.addEventListener('input', () => {
+            this._todaySearchQuery = searchInput.value.trim().toLowerCase();
+            searchClear.style.display = this._todaySearchQuery ? 'flex' : 'none';
+            this._applyTodayFilter();
+        });
+
+        searchClear.addEventListener('click', () => {
+            searchInput.value = '';
+            this._todaySearchQuery = '';
+            searchClear.style.display = 'none';
+            searchInput.focus();
+            this._applyTodayFilter();
+        });
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                searchWrap.classList.remove('tsf-search-open');
+                searchInput.value = '';
+                this._todaySearchQuery = '';
+                searchClear.style.display = 'none';
+                this._applyTodayFilter();
+            }
+        });
 
         // Modal
         document.getElementById('btnSaveModal').addEventListener('click', () => this.saveItem());
@@ -858,6 +996,13 @@ class HabitTrackerApp {
         document.querySelectorAll('.btn-aprend-item.active').forEach(b => b.classList.remove('active'));
     }
 
+    _navigateToAprend(category, itemId) {
+        if (typeof Aprendizados !== 'undefined') {
+            Aprendizados.openItem(category, itemId);
+        }
+        this.showView('aprendizados');
+    }
+
     async _toggleItemAprendDropdown(btn, category, itemId, noteEditable) {
         // Se já há um dropdown aberto para este botão, fechar
         const existing = document.querySelector(`.item-aprend-dropdown[data-item-id="${itemId}"][data-category="${category}"]`);
@@ -912,6 +1057,15 @@ class HabitTrackerApp {
 
         if (totalLines === 0) {
             dropdown.innerHTML = `<div class="item-aprend-empty">Nenhuma anotação em Aprendizados para este item</div>`;
+            const footerEmpty = document.createElement('div');
+            footerEmpty.className = 'item-aprend-footer';
+            footerEmpty.innerHTML = '<button class="item-aprend-goto-btn">📝 Criar nota</button>';
+            footerEmpty.querySelector('.item-aprend-goto-btn').addEventListener('mousedown', (ev) => {
+                ev.preventDefault(); ev.stopPropagation();
+                this._closeAllItemAprendDropdowns();
+                this._navigateToAprend(category, itemId);
+            });
+            dropdown.appendChild(footerEmpty);
         } else {
             notes.forEach((note) => {
                 const noteLines = (note.content || '').split('\n').filter(l => l.trim() !== '');
@@ -982,6 +1136,17 @@ class HabitTrackerApp {
                     dropdown.appendChild(lineEl);
                 });
             });
+
+            // Botão "Ver todas as notas" no rodapé
+            const footerNotes = document.createElement('div');
+            footerNotes.className = 'item-aprend-footer';
+            footerNotes.innerHTML = '<button class="item-aprend-goto-btn">📚 Ver todas as notas</button>';
+            footerNotes.querySelector('.item-aprend-goto-btn').addEventListener('mousedown', (ev) => {
+                ev.preventDefault(); ev.stopPropagation();
+                this._closeAllItemAprendDropdowns();
+                this._navigateToAprend(category, itemId);
+            });
+            dropdown.appendChild(footerNotes);
         }
 
         // Portal: mover para body com position fixed
@@ -1074,6 +1239,184 @@ class HabitTrackerApp {
         this.renderTodayView();
     }
 
+    // ─── Barra Semanal ────────────────────────────────────────────────────────
+    // Retorna a segunda-feira da semana que contém `date`
+    getWeekMonday(date) {
+        const d = new Date(date);
+        const dow = d.getDay(); // 0=Dom, 1=Seg, ..., 6=Sab
+        const diff = (dow === 0) ? -6 : 1 - dow;
+        d.setDate(d.getDate() + diff);
+        d.setHours(0, 0, 0, 0);
+        return d;
+    }
+
+    // Constrói e retorna o elemento .item-week-bar para um item
+    // Carrega os status dos 7 dias da semana atual (Seg→Dom) de forma assíncrona
+    async renderItemWeekBar(category, itemId, refDate) {
+        const labels      = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D'];
+        const monday      = this.getWeekMonday(refDate);
+        const todayStr    = this.getDateString(new Date());
+        const viewingStr  = this.getDateString(refDate);  // dia visualizado no date-selector
+
+        const bar = document.createElement('div');
+        bar.className = 'item-week-bar';
+        bar.dataset.category = category;
+        bar.dataset.itemId   = itemId;
+
+        // Buscar status dos 7 dias em paralelo
+        const days = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(monday);
+            d.setDate(monday.getDate() + i);
+            return d;
+        });
+
+        const statuses = await Promise.all(
+            days.map(d => StorageManager.getItemStatus(this.getDateString(d), category, itemId))
+        );
+
+        days.forEach((d, i) => {
+            const dateStr   = this.getDateString(d);
+            const status    = statuses[i].status || 'none';
+            const isToday   = dateStr === todayStr;
+            const isViewing = dateStr === viewingStr;
+
+            let cls = 'week-bar-day';
+            if (isToday)   cls += ' is-today';
+            if (isViewing) cls += ' is-viewing';
+
+            const dayEl = document.createElement('div');
+            dayEl.className = cls;
+            dayEl.dataset.dateStr = dateStr;
+            dayEl.dataset.status  = status;
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'week-bar-label';
+            labelEl.textContent = labels[i];
+
+            const daynumEl = document.createElement('div');
+            daynumEl.className = 'week-bar-daynum';
+            daynumEl.textContent = d.getDate();
+
+            const block = document.createElement('div');
+            block.className = 'week-bar-block';
+            block.dataset.status = status;
+
+            dayEl.appendChild(labelEl);
+            dayEl.appendChild(daynumEl);
+            dayEl.appendChild(block);
+
+            // Seta: laranja para dia visualizado, azul para hoje real (só se diferente)
+            if (isViewing || isToday) {
+                const arrow = document.createElement('div');
+                arrow.className = 'week-bar-arrow' + (isViewing ? ' week-bar-arrow--viewing' : '');
+                arrow.textContent = '▲';
+                dayEl.appendChild(arrow);
+            }
+
+            // O clique é tratado por delegação no container (renderCategoryItems)
+            bar.appendChild(dayEl);
+        });
+
+        return bar;
+    }
+
+    _showWeekDayPicker(dayEl, blockEl, dateStr, category, itemId, item) {
+        // Fechar qualquer picker anterior
+        document.querySelectorAll('.wday-picker').forEach(p => p.remove());
+
+        const STATUS_OPTIONS = [
+            { key: 'none',         label: 'Nenhum',       color: 'rgba(107,114,128,0.5)' },
+            { key: 'concluido',    label: 'Concluído',    color: '#22c55e' },
+            { key: 'em-andamento', label: 'Em andamento', color: '#eab308' },
+            { key: 'parcialmente', label: 'Parcialmente', color: '#f97316' },
+            { key: 'nao-feito',    label: 'Não feito',    color: '#ef4444' },
+            { key: 'bloqueado',    label: 'Bloqueado',    color: 'rgba(239,68,68,0.6)' },
+            { key: 'aguardando',   label: 'Aguardando',   color: '#95d3ee' },
+            { key: 'prioridade',   label: 'Prioridade',   color: '#a855f7' },
+            { key: 'pular',        label: 'Pular',        color: 'rgba(107,114,128,0.4)' },
+        ];
+
+        const current = dayEl.dataset.status || 'none';
+        const d = new Date(dateStr + 'T12:00:00');
+        const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        const weekdays = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+        const label = `${weekdays[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+
+        const picker = document.createElement('div');
+        picker.className = 'wday-picker';
+
+        const header = document.createElement('div');
+        header.className = 'wday-picker-header';
+        header.textContent = label;
+        picker.appendChild(header);
+
+        STATUS_OPTIONS.forEach(opt => {
+            const row = document.createElement('div');
+            row.className = 'wday-picker-option' + (opt.key === current ? ' active' : '');
+
+            const dot = document.createElement('span');
+            dot.className = 'wday-picker-dot';
+            dot.style.background = opt.color;
+
+            row.appendChild(dot);
+            row.appendChild(document.createTextNode(opt.label));
+
+            row.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                picker.remove();
+
+                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                await StorageManager.saveItemStatus(dateStr, category, itemId, opt.key, existing.note || '');
+
+                // Atualizar bloco visual
+                dayEl.dataset.status = opt.key;
+                blockEl.dataset.status = opt.key;
+
+                const todayStr = this.getDateString(new Date());
+                if (opt.key === 'concluido' && dateStr === todayStr) {
+                    this.showAprendizadoPopup(category, itemId, item?.name || itemId);
+                }
+                if (dateStr === todayStr) {
+                    this.renderTodayView();
+                }
+            });
+
+            picker.appendChild(row);
+        });
+
+        document.body.appendChild(picker);
+
+        // Posicionar surgindo a partir do bloco
+        const rect = blockEl.getBoundingClientRect();
+        const pickerW = 162;
+
+        // Centralizar horizontalmente no bloco, surgir abaixo
+        let left = rect.left + rect.width / 2 - pickerW / 2;
+        let top  = rect.bottom + 6;
+
+        // Bounds
+        if (left < 6) left = 6;
+        if (left + pickerW > window.innerWidth - 6) left = window.innerWidth - pickerW - 6;
+        if (top + 280 > window.innerHeight - 6) top = rect.top - 280 - 4;
+
+        picker.style.left  = `${left}px`;
+        picker.style.top   = `${top}px`;
+        picker.style.width = `${pickerW}px`;
+        // Origem da animação: centro do bloco
+        picker.style.transformOrigin = `${rect.left + rect.width/2 - left}px top`;
+
+        // Fechar ao clicar fora
+        const close = (e) => {
+            if (!picker.contains(e.target)) {
+                picker.classList.add('wday-picker-out');
+                picker.addEventListener('animationend', () => picker.remove(), { once: true });
+                document.removeEventListener('click', close, true);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', close, true), 10);
+    }
+    // ─── Fim Barra Semanal ────────────────────────────────────────────────────
+
     getDateString(date = this.currentDate) {
         // Usa data LOCAL (não UTC) para evitar bug de virada de dia em fusos horários como Brasil (UTC-3)
         const y = date.getFullYear();
@@ -1130,12 +1473,82 @@ class HabitTrackerApp {
             this.renderCategoryItems('clientes', 'clientesList', APP_DATA.clientes, dateStr),
             this.renderCategoryItems('categorias', 'categoriasList', APP_DATA.categorias, dateStr),
             this.renderCategoryItems('atividades', 'atividadesList', APP_DATA.atividades, dateStr)
-        ]);
+        ]).then(() => this._applyTodayFilter());
+    }
+
+    _applyTodayFilter() {
+        const filter = this._activeTodayFilter || 'all';
+        const query  = (this._todaySearchQuery || '').toLowerCase().trim();
+
+        document.querySelectorAll('#todayView .item').forEach(itemEl => {
+            const statusOk = filter === 'all' || itemEl.classList.contains('status-' + filter);
+
+            let searchOk = true;
+            if (query) {
+                const nameEl = itemEl.querySelector('.item-name');
+                // Usar data-original-name para sempre comparar contra o nome limpo
+                if (nameEl && !nameEl.dataset.originalName) {
+                    nameEl.dataset.originalName = nameEl.textContent;
+                }
+                const originalName = nameEl?.dataset.originalName || nameEl?.textContent || '';
+                searchOk = originalName.toLowerCase().includes(query);
+
+                // Highlight no nome
+                if (nameEl) {
+                    if (searchOk) {
+                        const idx = originalName.toLowerCase().indexOf(query);
+                        if (idx >= 0) {
+                            nameEl.innerHTML = originalName.slice(0, idx)
+                                + '<mark class="tsf-highlight">' + originalName.slice(idx, idx + query.length) + '</mark>'
+                                + originalName.slice(idx + query.length);
+                        }
+                    } else {
+                        nameEl.innerHTML = originalName;
+                    }
+                }
+            } else {
+                // Limpar highlight
+                const nameEl = itemEl.querySelector('.item-name');
+                if (nameEl?.querySelector('.tsf-highlight')) {
+                    nameEl.textContent = nameEl.textContent;
+                }
+            }
+
+            itemEl.style.display = (statusOk && searchOk) ? '' : 'none';
+        });
+
+        // Ocultar categorias sem itens visíveis
+        const filtering = filter !== 'all' || query;
+        document.querySelectorAll('#todayView .category').forEach(cat => {
+            const visible = [...cat.querySelectorAll('.item')].filter(el => el.style.display !== 'none');
+            cat.style.display = (visible.length === 0 && filtering) ? 'none' : '';
+        });
     }
 
     async renderCategoryItems(category, containerId, items, dateStr) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
+
+        // Interceptar cliques na barra semanal em capture, antes de qualquer handler dos items
+        // Usar uma única delegação no container para garantir prioridade
+        if (!container._weekBarHandlerAttached) {
+            container._weekBarHandlerAttached = true;
+            container.addEventListener('click', (ev) => {
+                const dayEl = ev.target.closest('.week-bar-day');
+                if (!dayEl) return;
+                ev.stopImmediatePropagation();
+                ev.preventDefault();
+                const bar = dayEl.closest('.item-week-bar');
+                if (!bar) return;
+                const cat  = bar.dataset.category;
+                const iid  = bar.dataset.itemId;
+                const dstr = dayEl.dataset.dateStr;
+                const block = dayEl.querySelector('.week-bar-block');
+                // Encontrar o item nos dados
+                const itemObj = (APP_DATA[cat] || []).find(i => i.id === iid);
+                this._showWeekDayPicker(dayEl, block || dayEl, dstr, cat, iid, itemObj);
+            }, true); // capture: true — roda antes de qualquer handler filho
+        }
 
         for (const item of items) {
             const itemData = await StorageManager.getItemStatus(dateStr, category, item.id);
@@ -1154,10 +1567,13 @@ class HabitTrackerApp {
             }
 
             // Build header with mic button (custom status dropdown will be inserted programmatically)
+            const hasNoteInitially = !!(itemData.note && itemData.note.trim());
             const headerHtml = `
                 <div class="item-header">
                     <span class="item-name" tabindex="0">${item.name}</span>
                     <div style="display:flex;gap:0.5rem;align-items:center;">
+                        <button class="btn-google-search" title="Pesquisar nota no Google" aria-label="Pesquisar no Google" style="display:${hasNoteInitially ? 'inline-flex' : 'none'};align-items:center;justify-content:center;padding:2px 4px;background:none;border:none;cursor:pointer;border-radius:4px;opacity:0.75;" tabindex="-1"><img src="https://www.google.com/favicon.ico" alt="Google" width="14" height="14" style="display:block;pointer-events:none;"></button>
+                        <button class="btn-next-day" title="Passar para próximo dia" aria-label="Próximo dia">⏭</button>
                         <button class="btn-aprend-item" title="Inserir nota de Aprendizados" aria-label="Aprendizados">📚</button>
                         <button class="btn-mic" title="Gravar nota por voz" aria-label="Gravar nota por voz">🎙️</button>
                     </div>
@@ -1214,7 +1630,15 @@ class HabitTrackerApp {
                     clickedElement.closest('.custom-status') ||
                     clickedElement.closest('.btn-note-delete') ||
                     clickedElement.closest('.btn-aprend-item') ||
-                    clickedElement.closest('.item-aprend-dropdown')) {
+                    clickedElement.closest('.btn-next-day') ||
+                    clickedElement.closest('.btn-google-search') ||
+                    clickedElement.closest('.item-aprend-dropdown') ||
+                    clickedElement.closest('.item-week-bar')) {
+                    return;
+                }
+
+                // Se clicou num link dentro da nota exibida: deixar o navegador abrir normalmente
+                if (clickedElement.closest('a') && clickedElement.closest('.item-note')) {
                     return;
                 }
 
@@ -1331,6 +1755,9 @@ class HabitTrackerApp {
             // insert the custom control into the header area (replace the select spot)
             const headerRight = itemEl.querySelector('.item-header > div');
             if (headerRight) headerRight.appendChild(statusContainer);
+
+            // Ocultar o botão de status em todas as categorias (mudança feita pelo week-bar-block)
+            statusBtn.style.display = 'none';
 
             // helper to show current selected label on button
             const setStatusUI = (statusKey) => {
@@ -1452,16 +1879,27 @@ class HabitTrackerApp {
                 const newStatus = li.dataset.value || 'none';
                 setStatusUI(newStatus);
 
-                // save
+                // save (sempre para o dia atual)
                 const dateStr = this.getDateString();
                 const existing = await StorageManager.getItemStatus(dateStr, category, item.id);
                 await StorageManager.saveItemStatus(dateStr, category, item.id, newStatus, existing.note || '');
 
-                // close and re-render
+                // Atualizar bloco de hoje na barra semanal
+                const barEl = itemEl.querySelector('.item-week-bar');
+                if (barEl) {
+                    const todayStr = this.getDateString(new Date());
+                    const todayDayEl = barEl.querySelector(`.week-bar-day[data-date-str="${todayStr}"]`);
+                    if (todayDayEl) {
+                        todayDayEl.dataset.status = newStatus;
+                        const block = todayDayEl.querySelector('.week-bar-block');
+                        if (block) block.dataset.status = newStatus;
+                    }
+                }
+
                 detachStatusList();
                 this.renderTodayView();
 
-                // Se concluído: perguntar aprendizado
+                // Se concluído hoje: perguntar aprendizado
                 if (newStatus === 'concluido') {
                     this.showAprendizadoPopup(category, item.id, item.name || item.id);
                 }
@@ -1517,6 +1955,29 @@ class HabitTrackerApp {
                 }
             });
 
+            // ── Google Search por nota do item ───────────────────────────
+            const googleBtn = itemEl.querySelector('.btn-google-search');
+            if (googleBtn) {
+                googleBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                    const noteContent = (noteEditable.innerText || '').trim()
+                        || itemEl.querySelector('.item-note')?.innerText?.replace(/✖$/, '').trim()
+                        || '';
+                    if (noteContent) {
+                        window.open('https://www.google.com/search?q=' + encodeURIComponent(noteContent), '_blank');
+                    }
+                });
+            }
+
+            // Atualiza visibilidade do botão Google conforme conteúdo digitado
+            noteEditable.addEventListener('input', () => {
+                if (googleBtn) {
+                    const hasText = noteEditable.innerText.trim().length > 0;
+                    googleBtn.style.display = hasText ? 'inline-flex' : 'none';
+                }
+            });
+
             // ── Aprendizados picker por item ─────────────────────────────
             const aprendBtn = itemEl.querySelector('.btn-aprend-item');
             if (aprendBtn) {
@@ -1524,6 +1985,48 @@ class HabitTrackerApp {
                     ev.stopPropagation();
                     ev.preventDefault();
                     this._toggleItemAprendDropdown(aprendBtn, category, item.id, noteEditable);
+                });
+            }
+
+            // ── Passar para próximo dia ───────────────────────────────────
+            const nextDayBtn = itemEl.querySelector('.btn-next-day');
+            if (nextDayBtn) {
+                nextDayBtn.addEventListener('click', async (ev) => {
+                    ev.stopPropagation();
+                    ev.preventDefault();
+
+                    const currentDateStr = this.getDateString();
+
+                    // Calcular próximo dia
+                    const nextDate = new Date(
+                        this.currentDate.getFullYear(),
+                        this.currentDate.getMonth(),
+                        this.currentDate.getDate() + 1
+                    );
+                    const nextDateStr = this.getDateString(nextDate);
+
+                    // Ler dados do dia atual
+                    const currentData = await StorageManager.getItemStatus(currentDateStr, category, item.id);
+                    const currentStatus = currentData.status || 'none';
+                    const currentNote = currentData.note || '';
+
+                    // Ler dados do próximo dia (preservar se já existir)
+                    const nextData = await StorageManager.getItemStatus(nextDateStr, category, item.id);
+                    const nextNote = (nextData.note || '').trim();
+                    const nextStatus = nextData.status || 'none';
+
+                    // Duplicar para o próximo dia: preserva o que já existe
+                    const mergedNote = nextNote ? nextNote : currentNote;
+                    const mergedStatus = nextStatus !== 'none' ? nextStatus : currentStatus;
+                    await StorageManager.saveItemStatus(nextDateStr, category, item.id, mergedStatus, mergedNote);
+
+                    // Marcar dia atual como não feito
+                    await StorageManager.saveItemStatus(currentDateStr, category, item.id, 'nao-feito', currentNote);
+
+                    // Feedback e re-render
+                    nextDayBtn.textContent = '✅';
+                    nextDayBtn.disabled = true;
+                    setTimeout(() => this.renderTodayView(), 700);
                 });
             }
 
@@ -1545,13 +2048,18 @@ class HabitTrackerApp {
             // }
 
             container.appendChild(itemEl);
+
+            // Barra semanal de blocos — carrega async e appenda ao itemEl
+            this.renderItemWeekBar(category, item.id, this.currentDate).then(bar => {
+                itemEl.appendChild(bar);
+            });
         }
     }
 
     // Convert URLs in text to clickable links
     linkifyText(text) {
         const urlRegex = /(https?:\/\/[^\s]+)/g;
-        return text.replace(urlRegex, '<a href="$1" target="_blank" onclick="event.stopPropagation()">$1</a>')
+        return text.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" class="note-link">$1</a>')
                    .replace(/\n/g, '<br>');
     }
 
