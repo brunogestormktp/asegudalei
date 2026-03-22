@@ -53,6 +53,10 @@ body {
     -webkit-tap-highlight-color: transparent;
     /* Prevenir scrolling elástico no iOS */
     overscroll-behavior-y: none;
+    /* Safe area: padding lateral e inferior para notch/home bar iOS */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* ── Zoom desktop: 75% equivalente ao Ctrl-Minus no Chrome ── */
@@ -96,7 +100,9 @@ body {
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--glass-border);
+    /* padding-top absorve a status bar do iOS Web App (safe-area-inset-top) */
     padding: 16px 20px;
+    padding-top: max(16px, calc(16px + env(safe-area-inset-top)));
     box-shadow: var(--shadow-md);
     position: sticky;
     top: 0;
@@ -2625,9 +2631,10 @@ body {
 @media (max-width: 640px) {
     .header {
         padding: 12px 16px;
+        padding-top: max(12px, calc(12px + env(safe-area-inset-top)));
         flex-wrap: wrap;
     }
-    
+
     .date-selector {
         top: 64px;   /* header menor no mobile */
         margin-left: -1rem;
