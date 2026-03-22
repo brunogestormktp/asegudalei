@@ -105,12 +105,12 @@ class HabitTrackerApp {
             // Auto-focus input after animation
             setTimeout(() => input.focus(), 80);
 
-            const countWords = (str) => str.trim() === '' ? 0 : str.trim().split(/\s+/).length;
+            const countChars = (str) => str.length;
 
             const onInput = () => {
-                const words = countWords(input.value);
-                wordCountEl.textContent = words;
-                const over = words > 10;
+                const chars = countChars(input.value);
+                wordCountEl.textContent = chars;
+                const over = chars > 10;
                 wordCountEl.classList.toggle('over-limit', over);
                 input.classList.toggle('over-limit', over);
                 btnSave.disabled = over;
@@ -127,12 +127,19 @@ class HabitTrackerApp {
 
             const handleSave = async () => {
                 const text = input.value.trim();
-                if (!text || countWords(text) > 10) return;
+                if (!text || countChars(text) > 10) return;
                 cleanup();
-                // Save to aprendizados
+                // Save to aprendizados tab
                 if (typeof Aprendizados !== 'undefined' && text) {
                     Aprendizados.addQuickEntry(category, itemId, itemName, text);
                 }
+                // Save to history: append 🧠 note to today's item record
+                const dateStr = this.getDateString();
+                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                const prevNote = existing.note ? existing.note.trim() : '';
+                const aprendNote = `🧠 ${text}`;
+                const newNote = prevNote ? `${prevNote}\n${aprendNote}` : aprendNote;
+                await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'concluido', newNote);
                 resolve(text);
             };
 
