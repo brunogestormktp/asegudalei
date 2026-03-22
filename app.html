@@ -2,7 +2,10 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=0.75, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>A Segunda Lei - Tracker de Entropia</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -92,6 +95,13 @@
                         <line x1="6" y1="20" x2="6" y2="14"></line>
                     </svg>
                     <span>Relatórios</span>
+                </button>
+                <button class="btn-nav-header" id="btnAprendizados" data-view="aprendizados">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+                    </svg>
+                    <span>Aprendizados</span>
                 </button>
                 <button class="btn-nav-header btn-logout" id="btnLogout">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -235,6 +245,56 @@
                 </div>
                 <div id="reportsContent"></div>
             </div>
+
+            <!-- Aprendizados View -->
+            <div class="view hidden" id="aprendizadosView" style="padding:0; overflow:hidden;">
+                <div class="aprend-layout">
+                    <!-- Coluna 1: Pastas (categorias + busca) -->
+                    <div class="aprend-col aprend-col-folders" id="aprendColFolders">
+                        <div class="aprend-col-header">
+                            <h2 class="aprend-col-title">Notas</h2>
+                        </div>
+                        <div class="aprend-search-wrap">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" id="aprendSearch" placeholder="Buscar em todas as notas..." autocomplete="off" />
+                        </div>
+                        <div id="aprendFolderList"></div>
+                        <div id="aprendSearchResults" class="hidden"></div>
+                    </div>
+
+                    <!-- Coluna 2: Subpastas / Lista de notas -->
+                    <div class="aprend-col aprend-col-notes" id="aprendColNotes">
+                        <div class="aprend-col-header" id="aprendNotesHeader">
+                            <button class="aprend-btn-back" id="aprendBackToFolders">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                            </button>
+                            <span class="aprend-col-title" id="aprendNotesTitle">—</span>
+                        </div>
+                        <div id="aprendNotesList"></div>
+                        <button class="aprend-btn-new-note" id="aprendBtnNewNote" title="Nova nota">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                        </button>
+                    </div>
+
+                    <!-- Coluna 3: Editor de nota -->
+                    <div class="aprend-col aprend-col-editor" id="aprendColEditor">
+                        <div id="aprendEditorPanel">
+                            <div class="aprend-editor-empty" id="aprendEditorEmpty">
+                                <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.2">
+                                    <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                                </svg>
+                                <span>Selecione ou crie uma nota</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Lightbox para imagens -->
+                <div class="aprend-lightbox hidden" id="aprendLightbox">
+                    <button class="aprend-lightbox-close" id="aprendLightboxClose">✕</button>
+                    <img id="aprendLightboxImg" src="" alt="" />
+                </div>
+            </div>
         </main>
 
         <!-- Item Edit Modal -->
@@ -296,9 +356,10 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="config.js"></script>
-    <script src="app-auth.js"></script>
     <script src="data.js"></script>
     <script src="storage.js"></script>
+    <script src="app-auth.js"></script>
+    <script src="aprendizados.js"></script>
     <script src="app.js"></script>
     <script async src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </body>

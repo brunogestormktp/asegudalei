@@ -1,0 +1,1123 @@
+// ============================================
+// APRENDIZADOS.JS — Sistema de Notas v2
+// Estrutura: Categorias → Itens → Notas (múltiplas por item)
+// ============================================
+
+const Aprendizados = (() => {
+    const STORAGE_KEY = 'aprendizadosData';
+    const SYNC_DEBOUNCE = 800;
+
+    // ─── Estado de navegação ─────────────────────────────────────────
+    const nav = {
+        level: 'folders',       // 'folders' | 'notes' | 'editor'
+        category: null,         // 'clientes' | 'categorias' | 'atividades'
+        itemId: null,
+        noteId: null,
+    };
+
+    let _syncTimer = null;
+    let _noteSaveTimer = null;
+    let _editorMode = 'lines'; // 'lines' | 'text'
+
+    // ─── Configurações de categoria ──────────────────────────────────
+    const CATEGORY_COLORS = {
+        clientes:   '#95d3ee',
+        categorias: '#6bb8d9',
+        atividades: '#4a9cc4',
+    };
+
+    const CATEGORY_LABELS = {
+        clientes:   '👥 Clientes',
+        categorias: '🏢 Empresa',
+        atividades: '👤 Pessoal',
+    };
+
+    // ─── Helpers ─────────────────────────────────────────────────────
+    function nowISO() { return new Date().toISOString(); }
+    function uuid() {
+        return 'n-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    }
+    function formatDate(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+    function formatRelative(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        const diff = Math.floor((Date.now() - d) / 1000);
+        if (diff < 60) return 'agora';
+        if (diff < 3600) return `${Math.floor(diff / 60)}min`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+        const days = Math.floor(diff / 86400);
+        if (days < 7) return `${days}d`;
+        return formatDate(iso);
+    }
+    function getLocalDateString() {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+    function highlight(text, term) {
+        if (!term) return escHtml(text);
+        const re = new RegExp(escapeRe(term), 'gi');
+        return escHtml(text).replace(re, m => `<mark class="aprend-hl">${m}</mark>`);
+    }
+
+    // ─── Storage ─────────────────────────────────────────────────────
+    function loadAll() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch { return {}; }
+    }
+
+    function saveAllSync(data) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) { console.warn(e); }
+        if (typeof StorageManager !== 'undefined') {
+            clearTimeout(_syncTimer);
+            _syncTimer = setTimeout(() => StorageManager.saveAprendizados(data), SYNC_DEBOUNCE);
+        }
+    }
+
+    async function syncFromSupabase() {
+        if (typeof StorageManager === 'undefined') return;
+        try {
+            const remote = await StorageManager.getAprendizados();
+            const local = loadAll();
+            if (!remote) {
+                if (Object.keys(local).length > 0) await StorageManager.saveAprendizados(local);
+                return;
+            }
+            const merged = mergeAll(local, remote);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+            if (JSON.stringify(merged) !== JSON.stringify(remote)) {
+                await StorageManager.saveAprendizados(merged);
+            }
+        } catch(e) { console.warn('Aprendizados sync error:', e); }
+    }
+
+    // Merge profundo: por categoria → item → nota (por updatedAt)
+    function mergeAll(local, remote) {
+        const result = JSON.parse(JSON.stringify(local));
+        for (const cat of Object.keys(remote)) {
+            if (!result[cat]) { result[cat] = remote[cat]; continue; }
+            for (const itemId of Object.keys(remote[cat])) {
+                const rItem = remote[cat][itemId];
+                const lItem = result[cat][itemId];
+                if (!lItem) { result[cat][itemId] = rItem; continue; }
+                result[cat][itemId] = mergeItem(lItem, rItem);
+            }
+        }
+        return result;
+    }
+
+    function mergeItem(local, remote) {
+        const lNotes = normalizeToNotes(local);
+        const rNotes = normalizeToNotes(remote);
+        const map = {};
+        for (const n of lNotes) map[n.id] = n;
+        for (const n of rNotes) {
+            if (!map[n.id]) { map[n.id] = n; continue; }
+            const lTs = map[n.id].updatedAt ? new Date(map[n.id].updatedAt).getTime() : 0;
+            const rTs = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
+            if (rTs > lTs) map[n.id] = n;
+        }
+        return { notes: Object.values(map).sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||'')) };
+    }
+
+    // Migrar formato legado (nota única) para array de notas
+    function normalizeToNotes(item) {
+        if (!item) return [];
+        if (Array.isArray(item.notes)) return item.notes;
+        if (typeof item.content !== 'undefined' || typeof item.checkedLines !== 'undefined') {
+            const content = item.content || '';
+            if (!content.trim()) return [];
+            return [{
+                id: uuid(),
+                title: _titleFromContent(content),
+                content,
+                checkedLines: item.checkedLines || {},
+                attachments: [],
+                createdAt: item.updatedAt || nowISO(),
+                updatedAt: item.updatedAt || nowISO(),
+            }];
+        }
+        return [];
+    }
+
+    function _titleFromContent(content) {
+        const first = (content || '').split('\n').find(l => l.trim() !== '');
+        if (!first) return 'Sem título';
+        return first.replace(/^[\-\*\[\]x\s]+/, '').trim().slice(0, 60) || 'Sem título';
+    }
+
+    // ─── Acesso a notas ───────────────────────────────────────────────
+    function getItemNotes(category, itemId) {
+        const all = loadAll();
+        return normalizeToNotes(all[category]?.[itemId]);
+    }
+
+    function getNote(category, itemId, noteId) {
+        return getItemNotes(category, itemId).find(n => n.id === noteId) || null;
+    }
+
+    function saveNote(category, itemId, note) {
+        const all = loadAll();
+        if (!all[category]) all[category] = {};
+        if (!all[category][itemId] || !Array.isArray(all[category][itemId].notes)) {
+            all[category][itemId] = { notes: normalizeToNotes(all[category][itemId]) };
+        }
+        const idx = all[category][itemId].notes.findIndex(n => n.id === note.id);
+        if (idx >= 0) {
+            all[category][itemId].notes[idx] = note;
+        } else {
+            all[category][itemId].notes.unshift(note);
+        }
+        saveAllSync(all);
+    }
+
+    function deleteNote(category, itemId, noteId) {
+        const all = loadAll();
+        if (!all[category]?.[itemId]) return;
+        all[category][itemId].notes = normalizeToNotes(all[category][itemId]).filter(n => n.id !== noteId);
+        saveAllSync(all);
+    }
+
+    function createNewNote(category, itemId) {
+        const note = {
+            id: uuid(),
+            title: '',
+            content: '',
+            checkedLines: {},
+            attachments: [],
+            createdAt: nowISO(),
+            updatedAt: nowISO(),
+        };
+        saveNote(category, itemId, note);
+        return note;
+    }
+
+    // setLineChecked — API pública, compatível com app.js
+    // noteId opcional: se fornecido marca na nota específica, senão usa a primeira
+    function setLineChecked(category, itemId, lineIndex, checked, noteId) {
+        const notes = getItemNotes(category, itemId);
+        if (notes.length === 0) return;
+        const note = noteId
+            ? (notes.find(n => n.id === noteId) || notes[0])
+            : notes[0];
+        if (!note.checkedLines) note.checkedLines = {};
+        if (checked) note.checkedLines[lineIndex] = true;
+        else delete note.checkedLines[lineIndex];
+        note.updatedAt = nowISO();
+        saveNote(category, itemId, note);
+
+        // Se o editor desta nota está aberto, atualizar visual da linha
+        if (nav.noteId === note.id && nav.category === category && nav.itemId === itemId) {
+            const rows = Array.from(document.querySelectorAll('#aprendLineRows .aprend-line-row'));
+            const row = rows[lineIndex];
+            if (row) {
+                const checkBtn = row.querySelector('.aprend-line-check-btn');
+                if (checked) {
+                    row.classList.add('checked');
+                    if (checkBtn) {
+                        checkBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"><polyline points="20 6 9 17 4 12"/></svg>`;
+                        checkBtn.title = 'Marcado — clique para desmarcar';
+                    }
+                } else {
+                    row.classList.remove('checked');
+                    if (checkBtn) {
+                        checkBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>`;
+                        checkBtn.title = 'Marcar e enviar para Hoje';
+                    }
+                }
+            }
+        }
+    }
+
+    // ─── Contadores ───────────────────────────────────────────────────
+    function countNotes(category, itemId) {
+        return getItemNotes(category, itemId).length;
+    }
+    function countCategoryNotes(category) {
+        const all = loadAll();
+        return (APP_DATA[category] || []).reduce((acc, item) => acc + normalizeToNotes(all[category]?.[item.id]).length, 0);
+    }
+    function getPreview(content) {
+        if (!content) return '';
+        return content.replace(/^[\s\-\*\[\]xX]+/gm, '').replace(/\n+/g, ' ').trim().slice(0, 80);
+    }
+
+    // ─── Texto puro ───────────────────────────────────────────────────
+    function getPlainText(el) {
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+        clone.querySelectorAll('div').forEach(div => { div.prepend('\n'); div.replaceWith(...div.childNodes); });
+        return clone.textContent;
+    }
+    function setPlainText(el, text) { el.textContent = text; }
+
+    // ─── RENDER: Nível 1 — Pastas ────────────────────────────────────
+    function renderFolders() {
+        const el = document.getElementById('aprendFolderList');
+        if (!el) return;
+        const groups = [
+            { key: 'clientes',   icon: '👥' },
+            { key: 'categorias', icon: '🏢' },
+            { key: 'atividades', icon: '👤' },
+        ];
+        el.innerHTML = groups.map(({ key, icon }) => {
+            const count = countCategoryNotes(key);
+            const label = CATEGORY_LABELS[key].replace(/^\S+\s/, '');
+            const color = CATEGORY_COLORS[key];
+            const isActive = nav.category === key;
+            return `
+            <div class="aprend-folder-row${isActive ? ' active' : ''}" data-category="${key}">
+                <div class="aprend-folder-icon" style="color:${color}">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" opacity="0.85">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                </div>
+                <div class="aprend-folder-info">
+                    <span class="aprend-folder-name">${icon} ${label}</span>
+                    ${count > 0 ? `<span class="aprend-folder-count">${count}</span>` : ''}
+                </div>
+                <svg class="aprend-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <div class="aprend-folder-sep"></div>`;
+        }).join('');
+
+        el.querySelectorAll('.aprend-folder-row').forEach(row => {
+            row.addEventListener('click', () => {
+                nav.category = row.dataset.category;
+                nav.itemId   = null;
+                nav.noteId   = null;
+                renderFolders();
+                renderSubfolders();
+                navigateTo('notes');
+            });
+        });
+    }
+
+    // ─── RENDER: Nível 2 — Subpastas / Lista de notas ────────────────
+    function renderSubfolders() {
+        const el    = document.getElementById('aprendNotesList');
+        const title = document.getElementById('aprendNotesTitle');
+        const btnNew = document.getElementById('aprendBtnNewNote');
+        if (!el || !nav.category) return;
+
+        if (nav.itemId) {
+            // Mostrar lista de notas do item
+            const item = (APP_DATA[nav.category] || []).find(i => i.id === nav.itemId);
+            if (title && item) title.textContent = item.name.replace(/^✅\s*/, '');
+            if (btnNew) btnNew.classList.remove('hidden');
+            renderNotesList();
+            return;
+        }
+
+        // Mostrar subpastas (itens)
+        if (title) title.textContent = CATEGORY_LABELS[nav.category].replace(/^\S+\s/, '');
+        if (btnNew) btnNew.classList.add('hidden');
+        const color = CATEGORY_COLORS[nav.category];
+        const items = APP_DATA[nav.category] || [];
+
+        el.innerHTML = items.map(item => {
+            const count = countNotes(nav.category, item.id);
+            const cleanName = item.name.replace(/^✅\s*/, '');
+            return `
+            <div class="aprend-subfolder-row" data-item-id="${item.id}" data-item-name="${escHtml(item.name)}">
+                <div class="aprend-subfolder-icon" style="color:${color}">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" opacity="0.7">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                </div>
+                <div class="aprend-subfolder-info">
+                    <span class="aprend-subfolder-name">${escHtml(cleanName)}</span>
+                    ${count > 0 ? `<span class="aprend-folder-count">${count}</span>` : ''}
+                </div>
+                <svg class="aprend-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>`;
+        }).join('');
+
+        el.querySelectorAll('.aprend-subfolder-row').forEach(row => {
+            row.addEventListener('click', () => {
+                nav.itemId = row.dataset.itemId;
+                const item = (APP_DATA[nav.category] || []).find(i => i.id === nav.itemId);
+                if (title && item) title.textContent = item.name.replace(/^✅\s*/, '');
+                if (btnNew) btnNew.classList.remove('hidden');
+                renderNotesList();
+                if (window.innerWidth <= 768) navigateTo('notes');
+            });
+        });
+    }
+
+    // ─── RENDER: Lista de notas ───────────────────────────────────────
+    function renderNotesList() {
+        const el = document.getElementById('aprendNotesList');
+        if (!el || !nav.category || !nav.itemId) return;
+
+        const notes = getItemNotes(nav.category, nav.itemId);
+        if (notes.length === 0) {
+            el.innerHTML = `<div class="aprend-notes-empty">Nenhuma nota ainda.<br>Toque em <b>+</b> para criar.</div>`;
+            return;
+        }
+
+        el.innerHTML = notes.map(note => {
+            const titleStr  = note.title || 'Sem título';
+            const preview   = getPreview(note.content);
+            const dateStr   = formatDate(note.updatedAt);
+            const hasAttach = (note.attachments || []).length > 0;
+            const isSelected = nav.noteId === note.id;
+            return `
+            <div class="aprend-note-card${isSelected ? ' selected' : ''}" data-note-id="${note.id}">
+                <div class="aprend-note-card-top">
+                    <span class="aprend-note-title">${escHtml(titleStr)}</span>
+                    <span class="aprend-note-date">${dateStr}</span>
+                </div>
+                <div class="aprend-note-preview">${escHtml(preview)}${hasAttach ? ' 📎' : ''}</div>
+            </div>`;
+        }).join('');
+
+        el.querySelectorAll('.aprend-note-card').forEach(card => {
+            card.addEventListener('click', () => {
+                _flushNote();
+                nav.noteId = card.dataset.noteId;
+                renderNotesList();
+                renderEditor();
+                navigateTo('editor');
+            });
+        });
+    }
+
+    // ─── RENDER: Editor ───────────────────────────────────────────────
+    function renderEditor() {
+        const panel = document.getElementById('aprendEditorPanel');
+        if (!panel) return;
+
+        if (!nav.noteId || !nav.category || !nav.itemId) {
+            panel.innerHTML = `
+                <div class="aprend-editor-empty">
+                    <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.2">
+                        <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                    <span>Selecione ou crie uma nota</span>
+                </div>`;
+            return;
+        }
+
+        const note = getNote(nav.category, nav.itemId, nav.noteId);
+        if (!note) { nav.noteId = null; renderEditor(); return; }
+
+        panel.innerHTML = `
+        <div class="aprend-editor-wrap">
+            <div class="aprend-editor-header">
+                <button class="aprend-editor-back" id="aprendEditorBack">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <input type="text" class="aprend-editor-title-input" id="aprendNoteTitle"
+                    value="${escHtml(note.title || '')}"
+                    placeholder="Sem título" spellcheck="true" maxlength="120" />
+            </div>
+
+            <div class="aprend-editor-meta">
+                Criado ${escHtml(formatDate(note.createdAt))} · Editado ${escHtml(formatRelative(note.updatedAt))}
+            </div>
+
+            <div class="aprend-editor-toolbar">
+                <button class="aprend-toolbar-btn" id="aprendBtnAttach" title="Anexar arquivo">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                    </svg>
+                </button>
+                <button class="aprend-toolbar-btn aprend-btn-camera" id="aprendBtnCamera" title="Câmera" style="${('ontouchstart' in window || navigator.maxTouchPoints > 0) ? '' : 'display:none'}">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+                    </svg>
+                </button>
+                <div class="aprend-toolbar-sep"></div>
+                <button class="aprend-toolbar-btn" id="aprendBtnImportToday" title="Importar tudo para hoje">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>
+                    </svg>
+                </button>
+                <button class="aprend-toolbar-btn aprend-btn-mode-toggle${_editorMode === 'text' ? ' active' : ''}" id="aprendBtnToggleMode" title="${_editorMode === 'text' ? 'Modo linhas (com marcação)' : 'Modo texto livre'}">
+                    ${_editorMode === 'text'
+                        ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="12" r="1.5"/><line x1="14" y1="12" x2="20" y2="12"/><circle cx="9" cy="6" r="1.5"/><line x1="14" y1="6" x2="20" y2="6"/><circle cx="9" cy="18" r="1.5"/><line x1="14" y1="18" x2="20" y2="18"/></svg>`
+                        : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>`
+                    }
+                </button>
+                <button class="aprend-toolbar-btn aprend-toolbar-btn-danger" id="aprendBtnDeleteNote" title="Apagar nota">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                        <path d="M10 11v6M14 11v6"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="aprend-editor-body" id="aprendEditorBody">
+                <div class="aprend-drop-overlay hidden" id="aprendDropOverlay">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#95d3ee" stroke-width="1.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <span>Solte aqui para inserir</span>
+                </div>
+                <div id="aprendLineRows" class="aprend-line-rows"></div>
+                <div id="aprendAttachments" class="aprend-attachments-list"></div>
+            </div>
+
+            <input type="file" id="aprendFileInput" accept="*/*" multiple style="display:none" />
+            <input type="file" id="aprendCameraInput" accept="image/*" capture="environment" style="display:none" />
+        </div>`;
+
+        _buildLineRows(note);
+        _renderAttachments(note);
+        _bindEditorEvents(note);
+        _applyEditorMode(); // aplica modo atual (lines ou text)
+    }
+
+    // ─── Toggle modo editor: linhas com checkbox ↔ texto livre ───────
+    function _applyEditorMode() {
+        const container = document.getElementById('aprendLineRows');
+        const btn = document.getElementById('aprendBtnToggleMode');
+        if (!container) return;
+
+        if (_editorMode === 'text') {
+            container.classList.add('aprend-mode-text');
+            // ocultar todos os botões de check
+            container.querySelectorAll('.aprend-line-check-btn').forEach(b => b.style.display = 'none');
+            if (btn) {
+                btn.classList.add('active');
+                btn.title = 'Modo linhas (com marcação)';
+                btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="12" r="1.5"/><line x1="14" y1="12" x2="20" y2="12"/><circle cx="9" cy="6" r="1.5"/><line x1="14" y1="6" x2="20" y2="6"/><circle cx="9" cy="18" r="1.5"/><line x1="14" y1="18" x2="20" y2="18"/></svg>`;
+            }
+        } else {
+            container.classList.remove('aprend-mode-text');
+            // mostrar todos os botões de check
+            container.querySelectorAll('.aprend-line-check-btn').forEach(b => b.style.display = '');
+            if (btn) {
+                btn.classList.remove('active');
+                btn.title = 'Modo texto livre';
+                btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>`;
+            }
+        }
+    }
+
+    function _toggleEditorMode() {
+        _syncLinesAndSave();
+        _editorMode = _editorMode === 'lines' ? 'text' : 'lines';
+        _applyEditorMode();
+    }
+
+    // ─── Constrói linhas clicáveis do editor ──────────────────────────
+    function _buildLineRows(note) {
+        const container = document.getElementById('aprendLineRows');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const lines = (note.content || '').split('\n');
+        // garante ao menos 1 linha vazia
+        if (lines.length === 0 || (lines.length === 1 && lines[0] === '')) {
+            lines[0] = '';
+        }
+
+        lines.forEach((lineText, idx) => {
+            container.appendChild(_createLineRow(note, lineText, idx));
+        });
+    }
+
+    function _createLineRow(note, lineText, idx) {
+        const checked = !!(note.checkedLines && note.checkedLines[idx]);
+        const row = document.createElement('div');
+        row.className = 'aprend-line-row' + (checked ? ' checked' : '');
+        row.dataset.idx = idx;
+
+        // Botão check ○ / ✓
+        const checkBtn = document.createElement('button');
+        checkBtn.className = 'aprend-line-check-btn';
+        checkBtn.title = checked ? 'Marcado — clique para desmarcar' : 'Marcar e enviar para Hoje';
+        checkBtn.innerHTML = checked
+            ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"><polyline points="20 6 9 17 4 12"/></svg>`
+            : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>`;
+
+        checkBtn.addEventListener('mousedown', (e) => e.preventDefault()); // não tira foco do texto
+        checkBtn.addEventListener('click', () => _toggleLineCheck(note, row, idx));
+
+        // Texto editável
+        const textEl = document.createElement('div');
+        textEl.className = 'aprend-line-text';
+        textEl.contentEditable = 'true';
+        textEl.spellcheck = true;
+        setPlainText(textEl, lineText);
+
+        textEl.addEventListener('input', () => {
+            _syncLinesAndSave();
+        });
+
+        textEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                // inserir nova linha após esta
+                _syncLinesAndSave();
+                const allRows = Array.from(document.querySelectorAll('.aprend-line-row'));
+                const thisRow = textEl.closest('.aprend-line-row');
+                const newRow = _createLineRow(note, '', -1);
+                thisRow.after(newRow);
+                newRow.querySelector('.aprend-line-text')?.focus();
+                _syncLinesAndSave();
+            }
+            if (e.key === 'Backspace') {
+                const text = getPlainText(textEl).replace(/\n/g, '');
+                if (text === '') {
+                    e.preventDefault();
+                    const thisRow = textEl.closest('.aprend-line-row');
+                    const prev = thisRow.previousElementSibling;
+                    if (prev) {
+                        const prevText = prev.querySelector('.aprend-line-text');
+                        thisRow.remove();
+                        prevText?.focus();
+                        // mover cursor para o fim
+                        const range = document.createRange();
+                        const sel = window.getSelection();
+                        range.selectNodeContents(prevText);
+                        range.collapse(false);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    }
+                    _syncLinesAndSave();
+                }
+            }
+        });
+
+        textEl.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const text = e.clipboardData.getData('text/plain');
+            const pasteLines = text.split('\n');
+            if (pasteLines.length === 1) {
+                document.execCommand('insertText', false, text);
+                return;
+            }
+            // Multiplas linhas: inserir cada uma como linha nova
+            const thisRow = textEl.closest('.aprend-line-row');
+            // Primeiro, atualizar o texto da linha atual
+            const before = getPlainText(textEl);
+            setPlainText(textEl, before + pasteLines[0]);
+            let anchor = thisRow;
+            for (let i = 1; i < pasteLines.length; i++) {
+                const nr = _createLineRow(note, pasteLines[i], -1);
+                anchor.after(nr);
+                anchor = nr;
+            }
+            anchor.querySelector('.aprend-line-text')?.focus();
+            _syncLinesAndSave();
+        });
+
+        row.appendChild(checkBtn);
+        row.appendChild(textEl);
+        return row;
+    }
+
+    // Lê todas as linhas do DOM e salva
+    function _syncLinesAndSave() {
+        if (!nav.noteId || !nav.category || !nav.itemId) return;
+        const note = getNote(nav.category, nav.itemId, nav.noteId);
+        if (!note) return;
+
+        const rows = Array.from(document.querySelectorAll('#aprendLineRows .aprend-line-row'));
+        const lines = rows.map(r => getPlainText(r.querySelector('.aprend-line-text') || r).replace(/\n/g, ''));
+
+        // Reindexar checkedLines: checked rows mantêm estado
+        const newChecked = {};
+        rows.forEach((r, i) => {
+            if (r.classList.contains('checked')) newChecked[i] = true;
+        });
+
+        note.content = lines.join('\n');
+        note.checkedLines = newChecked;
+        note.updatedAt = nowISO();
+        if (!note.title) note.title = _titleFromContent(note.content);
+
+        const titleEl = document.getElementById('aprendNoteTitle');
+        if (titleEl?.value?.trim()) note.title = titleEl.value.trim();
+
+        saveNote(nav.category, nav.itemId, note);
+
+        // Atualizar card
+        const card = document.querySelector(`.aprend-note-card[data-note-id="${note.id}"]`);
+        if (card) {
+            const t = card.querySelector('.aprend-note-title');
+            const p = card.querySelector('.aprend-note-preview');
+            if (t) t.textContent = note.title || 'Sem título';
+            if (p) p.textContent = getPreview(note.content);
+        }
+        renderFolders();
+    }
+
+    // Toggle check de uma linha: marca verde + envia para Hoje
+    async function _toggleLineCheck(note, row, idx) {
+        const rows = Array.from(document.querySelectorAll('#aprendLineRows .aprend-line-row'));
+        const realIdx = rows.indexOf(row);
+        const effectiveIdx = realIdx >= 0 ? realIdx : idx;
+
+        const fresh = getNote(nav.category, nav.itemId, nav.noteId);
+        if (!fresh) return;
+
+        const wasChecked = !!(fresh.checkedLines && fresh.checkedLines[effectiveIdx]);
+        const newChecked = !wasChecked;
+
+        // Atualizar storage
+        if (!fresh.checkedLines) fresh.checkedLines = {};
+        if (newChecked) fresh.checkedLines[effectiveIdx] = true;
+        else delete fresh.checkedLines[effectiveIdx];
+        fresh.updatedAt = nowISO();
+        saveNote(nav.category, nav.itemId, fresh);
+
+        // Atualizar visual da linha
+        const checkBtn = row.querySelector('.aprend-line-check-btn');
+        if (newChecked) {
+            row.classList.add('checked');
+            checkBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8"><polyline points="20 6 9 17 4 12"/></svg>`;
+            checkBtn.title = 'Marcado — clique para desmarcar';
+        } else {
+            row.classList.remove('checked');
+            checkBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>`;
+            checkBtn.title = 'Marcar e enviar para Hoje';
+        }
+
+        // Se marcou: enviar linha para a nota do item em Hoje
+        if (newChecked) {
+            const lineText = getPlainText(row.querySelector('.aprend-line-text')).replace(/\n/g, '').trim();
+            if (lineText) await _adicionarLinhaHoje(lineText);
+        }
+    }
+
+    // Adiciona uma linha à nota do item na aba Hoje
+    async function _adicionarLinhaHoje(lineText) {
+        if (!nav.category || !nav.itemId || !lineText) return;
+        try {
+            const dateStr = _todayStr();
+            const existing = await StorageManager.getItemStatus(dateStr, nav.category, nav.itemId);
+            const currentNote = existing.note || '';
+            const alreadyIn = currentNote.split('\n').some(l => l.trim() === lineText.trim());
+            const newNote = alreadyIn ? currentNote : (currentNote ? currentNote + '\n' + lineText : lineText);
+            await StorageManager.saveItemStatus(dateStr, nav.category, nav.itemId, existing.status || 'none', newNote);
+            _showToast(`✓ "${lineText.slice(0, 32)}${lineText.length > 32 ? '…' : ''}" → Hoje`, true, 2000);
+        } catch(e) {
+            console.error(e);
+            _showToast('Erro ao enviar para hoje.', false);
+        }
+    }
+
+    function _todayStr() {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    // ─── Eventos do editor ────────────────────────────────────────────
+    function _bindEditorEvents(note) {
+        const body = document.getElementById('aprendEditorBody');
+
+        // Voltar
+        document.getElementById('aprendEditorBack')?.addEventListener('click', () => {
+            _syncLinesAndSave();
+            renderNotesList();
+            navigateTo('notes');
+        });
+
+        // Título
+        document.getElementById('aprendNoteTitle')?.addEventListener('input', () => _syncLinesAndSave());
+        document.getElementById('aprendNoteTitle')?.addEventListener('blur',  () => _syncLinesAndSave());
+
+        // Drag & drop de arquivos
+        body?.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            document.getElementById('aprendDropOverlay')?.classList.remove('hidden');
+        });
+        body?.addEventListener('dragleave', () => {
+            document.getElementById('aprendDropOverlay')?.classList.add('hidden');
+        });
+        body?.addEventListener('drop', (e) => {
+            e.preventDefault();
+            document.getElementById('aprendDropOverlay')?.classList.add('hidden');
+            for (const file of e.dataTransfer.files) _insertFile(file);
+        });
+
+        // Toolbar — anexo e câmera
+        document.getElementById('aprendBtnAttach')?.addEventListener('click', () =>
+            document.getElementById('aprendFileInput')?.click());
+        document.getElementById('aprendFileInput')?.addEventListener('change', (e) => {
+            for (const file of e.target.files) _insertFile(file);
+            e.target.value = '';
+        });
+        document.getElementById('aprendBtnCamera')?.addEventListener('click', () =>
+            document.getElementById('aprendCameraInput')?.click());
+        document.getElementById('aprendCameraInput')?.addEventListener('change', (e) => {
+            for (const file of e.target.files) _insertFile(file);
+            e.target.value = '';
+        });
+
+        // Importar todas as linhas para hoje
+        document.getElementById('aprendBtnImportToday')?.addEventListener('click', () => {
+            _syncLinesAndSave();
+            _importarParaHoje();
+        });
+
+        // Toggle modo linhas ↔ texto
+        document.getElementById('aprendBtnToggleMode')?.addEventListener('click', () => {
+            _toggleEditorMode();
+        });
+
+        // Apagar nota (com confirmação inline no botão)
+        document.getElementById('aprendBtnDeleteNote')?.addEventListener('click', () => {
+            _confirmDeleteNote();
+        });
+
+        // Lightbox
+        document.getElementById('aprendLightboxClose')?.addEventListener('click', () =>
+            document.getElementById('aprendLightbox')?.classList.add('hidden'));
+    }
+
+    // ─── Save — compatibilidade com código que chama _flushNote ──────
+    function _scheduleNoteSave() { _syncLinesAndSave(); }
+    function _flushNote()        { _syncLinesAndSave(); }
+
+    // ─── Attachments ─────────────────────────────────────────────────
+    function _insertFile(file) {
+        const MAX_WARN = 500 * 1024;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const attach = {
+                id: uuid(),
+                type: file.type.startsWith('image/') ? 'image'
+                    : file.type.startsWith('video/') ? 'video'
+                    : file.type === 'application/pdf' ? 'pdf' : 'file',
+                name: file.name,
+                size: file.size,
+                data: ev.target.result,
+                createdAt: nowISO(),
+            };
+            const fresh = getNote(nav.category, nav.itemId, nav.noteId);
+            if (!fresh) return;
+            if (!fresh.attachments) fresh.attachments = [];
+            fresh.attachments.push(attach);
+            fresh.updatedAt = nowISO();
+            saveNote(nav.category, nav.itemId, fresh);
+            _renderAttachments(fresh);
+            if (file.size > MAX_WARN) {
+                const wEl = document.getElementById(`awarn-${attach.id}`);
+                if (wEl) wEl.innerHTML = `<div class="aprend-attach-warn">⚠️ Arquivo grande — pode afetar sincronização</div>`;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function _renderAttachments(note) {
+        const el = document.getElementById('aprendAttachments');
+        if (!el) return;
+        const attachments = note.attachments || [];
+        if (attachments.length === 0) { el.innerHTML = ''; return; }
+
+        el.innerHTML = attachments.map(a => {
+            const sizeStr = a.size > 1024*1024
+                ? `${(a.size/1024/1024).toFixed(1)}MB`
+                : `${Math.round(a.size/1024)}KB`;
+            if (a.type === 'image') return `
+                <div class="aprend-attach-img-wrap">
+                    <img src="${a.data}" class="aprend-attach-img" alt="${escHtml(a.name)}" />
+                    <button class="aprend-attach-del" data-attach-id="${a.id}" title="Remover">✕</button>
+                    <div id="awarn-${a.id}"></div>
+                </div>`;
+            if (a.type === 'video') return `
+                <div class="aprend-attach-video-wrap">
+                    <video src="${a.data}" controls class="aprend-attach-video"></video>
+                    <button class="aprend-attach-del" data-attach-id="${a.id}" title="Remover">✕</button>
+                    <div id="awarn-${a.id}"></div>
+                </div>`;
+            const icon = a.type === 'pdf' ? '📄' : '📎';
+            return `
+            <div class="aprend-attach-file">
+                <span class="aprend-attach-file-icon">${icon}</span>
+                <div class="aprend-attach-file-info">
+                    <span class="aprend-attach-file-name">${escHtml(a.name)}</span>
+                    <span class="aprend-attach-file-size">${sizeStr}</span>
+                </div>
+                <a href="${a.data}" download="${escHtml(a.name)}" class="aprend-attach-dl">⬇</a>
+                <button class="aprend-attach-del" data-attach-id="${a.id}" title="Remover">✕</button>
+                <div id="awarn-${a.id}"></div>
+            </div>`;
+        }).join('');
+
+        // Lightbox
+        el.querySelectorAll('.aprend-attach-img').forEach(img => {
+            img.addEventListener('click', () => {
+                const lb = document.getElementById('aprendLightbox');
+                const lbImg = document.getElementById('aprendLightboxImg');
+                if (lb && lbImg) { lbImg.src = img.src; lb.classList.remove('hidden'); }
+            });
+        });
+
+        // Remover
+        el.querySelectorAll('.aprend-attach-del').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const fresh = getNote(nav.category, nav.itemId, nav.noteId);
+                if (!fresh) return;
+                fresh.attachments = (fresh.attachments || []).filter(a => a.id !== btn.dataset.attachId);
+                fresh.updatedAt = nowISO();
+                saveNote(nav.category, nav.itemId, fresh);
+                _renderAttachments(fresh);
+            });
+        });
+    }
+
+    // ─── Importar para Hoje ──────────────────────────────────────────
+    async function _importarParaHoje() {
+        if (!nav.category || !nav.itemId || !nav.noteId) return;
+        const note = getNote(nav.category, nav.itemId, nav.noteId);
+        if (!note) return;
+        const content = note.content?.trim();
+        if (!content) { _showToast('Nota vazia — nada para importar.', false); return; }
+        try {
+            const dateStr = getLocalDateString();
+            const existing = await StorageManager.getItemStatus(dateStr, nav.category, nav.itemId);
+            const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            const sep = `\n— de Aprendizados ${hora} —\n`;
+            const newNote = existing.note ? existing.note + sep + content : content;
+            await StorageManager.saveItemStatus(dateStr, nav.category, nav.itemId, existing.status || 'none', newNote);
+            if (typeof app !== 'undefined' && app.currentView === 'today') app.renderTodayView();
+            _showToast('✓ Importado para hoje!', true);
+        } catch(err) {
+            console.error(err);
+            _showToast('Erro ao importar.', false);
+        }
+    }
+
+    // ─── Deletar nota (com confirmação) ──────────────────────────────
+    function _confirmDeleteNote() {
+        const btn = document.getElementById('aprendBtnDeleteNote');
+        if (!btn) return;
+        const origHTML = btn.innerHTML;
+        const origTitle = btn.title;
+
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`;
+        btn.style.color = '#ef4444';
+        btn.title = 'Clique para confirmar exclusão';
+
+        const cat = nav.category, itemId = nav.itemId, noteId = nav.noteId;
+
+        const doDelete = () => {
+            deleteNote(cat, itemId, noteId);
+            nav.noteId = null;
+            renderNotesList();
+            renderEditor();
+            renderFolders();
+            navigateTo('notes');
+            cleanup();
+        };
+        const cleanup = () => {
+            btn.innerHTML = origHTML;
+            btn.style.color = '';
+            btn.title = origTitle;
+            btn.removeEventListener('click', doDelete);
+            clearTimeout(t);
+        };
+        const t = setTimeout(cleanup, 4000);
+        btn.addEventListener('click', doDelete, { once: true });
+    }
+
+    // ─── Info da nota ─────────────────────────────────────────────────
+    function _showNoteInfo() {
+        if (!nav.noteId) return;
+        const note = getNote(nav.category, nav.itemId, nav.noteId);
+        if (!note) return;
+        const lines = (note.content || '').split('\n').filter(l => l.trim()).length;
+        const words = (note.content || '').trim().split(/\s+/).filter(Boolean).length;
+        const attachCount = (note.attachments || []).length;
+        _showToast(`${lines} linha(s) · ${words} palavra(s) · ${attachCount} anexo(s)\nCriado: ${formatDate(note.createdAt)}`, true, 4000);
+    }
+
+    // ─── Toast ────────────────────────────────────────────────────────
+    function _showToast(msg, success, duration = 2500) {
+        let el = document.getElementById('aprendToast');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'aprendToast';
+            document.body.appendChild(el);
+        }
+        el.textContent = msg;
+        el.className = 'aprend-toast ' + (success ? 'success' : 'error');
+        clearTimeout(el._t);
+        el._t = setTimeout(() => { el.className = 'aprend-toast hidden'; }, duration);
+    }
+
+    // ─── Busca global ─────────────────────────────────────────────────
+    function renderSearch(term) {
+        const resultsEl = document.getElementById('aprendSearchResults');
+        const folderEl  = document.getElementById('aprendFolderList');
+        if (!resultsEl) return;
+
+        if (!term || !term.trim()) {
+            resultsEl.classList.add('hidden');
+            folderEl?.classList.remove('hidden');
+            return;
+        }
+
+        folderEl?.classList.add('hidden');
+        resultsEl.classList.remove('hidden');
+
+        const termLow = term.toLowerCase();
+        const hits = [];
+        const all = loadAll();
+
+        Object.keys(CATEGORY_LABELS).forEach(cat => {
+            (APP_DATA[cat] || []).forEach(item => {
+                normalizeToNotes(all[cat]?.[item.id]).forEach(note => {
+                    const inTitle   = (note.title || '').toLowerCase().includes(termLow);
+                    const inContent = (note.content || '').toLowerCase().includes(termLow);
+                    if (!inTitle && !inContent) return;
+                    let snippet = '';
+                    if (inContent) {
+                        const idx = note.content.toLowerCase().indexOf(termLow);
+                        const start = Math.max(0, idx - 30);
+                        snippet = (start > 0 ? '…' : '') + note.content.slice(start, idx + 80).replace(/\n/g, ' ') + '…';
+                    }
+                    hits.push({ cat, item, note, snippet });
+                });
+            });
+        });
+
+        if (hits.length === 0) {
+            resultsEl.innerHTML = `<div class="aprend-search-empty">Nenhum resultado para "<b>${escHtml(term)}</b>"</div>`;
+            return;
+        }
+
+        resultsEl.innerHTML = hits.map((h, i) => {
+            const cleanName = h.item.name.replace(/^✅\s*/, '');
+            const catLabel  = CATEGORY_LABELS[h.cat].replace(/^\S+\s/, '');
+            return `
+            <div class="aprend-search-result" data-idx="${i}">
+                <div class="aprend-search-result-path">${escHtml(catLabel)} › ${escHtml(cleanName)}</div>
+                <div class="aprend-search-result-title">${highlight(h.note.title || 'Sem título', term)}</div>
+                ${h.snippet ? `<div class="aprend-search-result-snippet">${highlight(h.snippet, term)}</div>` : ''}
+            </div>`;
+        }).join('');
+
+        resultsEl.querySelectorAll('.aprend-search-result').forEach(row => {
+            row.addEventListener('click', () => {
+                const h = hits[parseInt(row.dataset.idx)];
+                nav.category = h.cat;
+                nav.itemId   = h.item.id;
+                nav.noteId   = h.note.id;
+                document.getElementById('aprendSearch').value = '';
+                renderSearch('');
+                renderFolders();
+                renderSubfolders();
+                renderNotesList();
+                renderEditor();
+                navigateTo('editor');
+            });
+        });
+    }
+
+    // ─── Navegação mobile ─────────────────────────────────────────────
+    function navigateTo(level) {
+        nav.level = level;
+        if (window.innerWidth > 768) return;
+
+        const colFolders = document.getElementById('aprendColFolders');
+        const colNotes   = document.getElementById('aprendColNotes');
+        const colEditor  = document.getElementById('aprendColEditor');
+        const all = [colFolders, colNotes, colEditor];
+
+        all.forEach(c => c?.classList.remove('mobile-active', 'mobile-slide-in', 'mobile-slide-out'));
+
+        if (level === 'folders') {
+            colFolders?.classList.add('mobile-active');
+            colNotes?.classList.remove('mobile-active');
+            colEditor?.classList.remove('mobile-active');
+        } else if (level === 'notes') {
+            colFolders?.classList.remove('mobile-active');
+            colNotes?.classList.add('mobile-active');
+            colEditor?.classList.remove('mobile-active');
+        } else {
+            colFolders?.classList.remove('mobile-active');
+            colNotes?.classList.remove('mobile-active');
+            colEditor?.classList.add('mobile-active');
+        }
+    }
+
+    function _applyLayout() {
+        const colFolders = document.getElementById('aprendColFolders');
+        const colNotes   = document.getElementById('aprendColNotes');
+        const colEditor  = document.getElementById('aprendColEditor');
+        if (!colFolders) return;
+
+        if (window.innerWidth > 768) {
+            [colFolders, colNotes, colEditor].forEach(c => {
+                c?.classList.remove('mobile-active');
+                c?.style && (c.style.display = '');
+            });
+        } else {
+            navigateTo(nav.level || 'folders');
+        }
+    }
+
+    // ─── Init ─────────────────────────────────────────────────────────
+    function init() {
+        renderFolders();
+        _applyLayout();
+
+        document.getElementById('aprendSearch')?.addEventListener('input', (e) => renderSearch(e.target.value));
+
+        document.getElementById('aprendBtnNewNote')?.addEventListener('click', () => {
+            if (!nav.category || !nav.itemId) return;
+            _flushNote();
+            const note = createNewNote(nav.category, nav.itemId);
+            nav.noteId = note.id;
+            renderNotesList();
+            renderEditor();
+            renderFolders();
+            navigateTo('editor');
+            setTimeout(() => document.getElementById('aprendNoteTitle')?.focus(), 80);
+        });
+
+        document.getElementById('aprendBackToFolders')?.addEventListener('click', () => {
+            _flushNote();
+            if (nav.itemId) {
+                nav.itemId = null;
+                nav.noteId = null;
+                const btnNew = document.getElementById('aprendBtnNewNote');
+                if (btnNew) btnNew.classList.add('hidden');
+                renderSubfolders();
+            } else {
+                nav.category = null;
+                renderFolders();
+                navigateTo('folders');
+            }
+            if (nav.category && !nav.itemId) navigateTo('notes');
+        });
+
+        window.addEventListener('resize', _applyLayout);
+
+        syncFromSupabase().then(() => {
+            renderFolders();
+            if (nav.itemId) renderNotesList();
+        }).catch(() => {});
+    }
+
+    function onShow() {
+        renderFolders();
+        if (nav.category) renderSubfolders();
+        if (nav.itemId)   renderNotesList();
+        if (nav.noteId)   renderEditor();
+        _applyLayout();
+    }
+
+    function onHide() { _flushNote(); }
+
+    return { init, onShow, onHide, setLineChecked };
+})();
+

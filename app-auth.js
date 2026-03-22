@@ -66,8 +66,60 @@ window.addEventListener('load', async function checkAuth() {
         currentUser = session.user;
         updateUserInfo();
         
+        // Carregar dados do Supabase ao fazer login
+        if (typeof StorageManager !== 'undefined' && StorageManager.forceSyncFromSupabase) {
+            console.log('Sincronizando dados do Supabase...');
+            const synced = await StorageManager.forceSyncFromSupabase();
+            if (synced) {
+                // Re-renderizar o app com os dados atualizados do Supabase
+                if (typeof app !== 'undefined' && app.renderCurrentView) {
+                    app.renderCurrentView();
+                } else {
+                    // app ainda não foi inicializado, agendar re-render após carregamento
+                    window._pendingRerender = true;
+                }
+            }
+        }
+
+        // Registrar botão de logout AQUI, depois que supabaseClient está pronto
+        document.getElementById('btnLogout')?.addEventListener('click', async () => {
+            const confirmed = await new Promise(resolve => {
+                if (typeof app !== 'undefined' && app.showConfirmModal) {
+                    app.showConfirmModal('Sair', 'Deseja realmente sair?').then(resolve);
+                } else {
+                    resolve(confirm('Deseja realmente sair?'));
+                }
+            });
+
+            if (!confirmed) return;
+
+            try {
+                // ⚠️ PROTEÇÃO: flush de dados para o Supabase ANTES de limpar localStorage
+                if (typeof StorageManager !== 'undefined' && StorageManager.flushToSupabase) {
+                    console.log('Fazendo flush dos dados antes do logout...');
+                    await StorageManager.flushToSupabase();
+                }
+
+                const { error } = await supabaseClient.auth.signOut();
+                if (error) throw error;
+
+                // Limpar APENAS chaves de sessão, preservar o backup de dados
+                const dataBackup = localStorage.getItem('habit-tracker-data-backup');
+                const aprendizadosBackup = localStorage.getItem('aprendizadosData');
+                localStorage.clear();
+                // Manter os backups para caso o usuário faça login novamente no mesmo dispositivo
+                if (dataBackup) localStorage.setItem('habit-tracker-data-backup', dataBackup);
+                if (aprendizadosBackup) localStorage.setItem('aprendizadosData', aprendizadosBackup);
+
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Erro ao fazer logout:', error);
+                alert('Erro ao sair. Tente novamente.');
+            }
+        });
+        
         // Listener para mudanças de autenticação
-        supabaseClient.auth.onAuthStateChange((event, session) => {
+        supabaseClient.auth.onAuthStateChange(async (event, session) => {
             console.log('Auth State Changed:', event);
             if (event === 'SIGNED_OUT' || !session) {
                 // Logout ou sessão expirada
@@ -75,13 +127,22 @@ window.addEventListener('load', async function checkAuth() {
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 currentUser = session.user;
                 updateUserInfo();
+                
+                // Sincronizar dados ao fazer login
+                if (event === 'SIGNED_IN' && typeof StorageManager !== 'undefined' && StorageManager.forceSyncFromSupabase) {
+                    console.log('Sincronizando dados do Supabase após login...');
+                    const synced = await StorageManager.forceSyncFromSupabase();
+                    if (synced && typeof app !== 'undefined' && app.renderCurrentView) {
+                        app.renderCurrentView();
+                    }
+                }
             }
         });
     } catch (error) {
         console.error('Erro ao verificar autenticação:', error);
         window.location.href = 'index.html';
     }
-})();
+});
 
 // Atualizar informações do usuário na UI
 function updateUserInfo() {
@@ -103,27 +164,6 @@ function getCurrentUserId() {
 function getCurrentUserEmail() {
     return currentUser?.email;
 }
-
-// Botão de Logout
-document.getElementById('btnLogout')?.addEventListener('click', async () => {
-    if (!supabaseClient) return;
-    
-    if (confirm('Deseja realmente sair?')) {
-        try {
-            // Limpar dados locais antes de fazer logout
-            localStorage.clear();
-            
-            const { error } = await supabaseClient.auth.signOut();
-            if (error) throw error;
-            
-            // Redirecionar para login
-            window.location.href = 'index.html';
-        } catch (error) {
-            console.error('Erro ao fazer logout:', error);
-            alert('Erro ao sair. Tente novamente.');
-        }
-    }
-});
 
 // Exportar funções para uso no app
 window.getCurrentUserId = getCurrentUserId;

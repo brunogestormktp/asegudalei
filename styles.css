@@ -48,6 +48,33 @@ body {
     background-attachment: fixed;
     color: var(--text-100);
     line-height: 1.6;
+    /* Prevenir zoom em iOS */
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    /* Prevenir scrolling elástico no iOS */
+    overscroll-behavior-y: none;
+}
+
+/* ── Zoom desktop: 75% equivalente ao Ctrl-Minus no Chrome ── */
+@media screen and (min-width: 769px) {
+    body {
+        zoom: 0.75;
+    }
+}
+
+/* ── Zoom mobile: 75% via CSS (reforço para Android/Chrome) ── */
+@media screen and (max-width: 768px) {
+    body {
+        zoom: 0.75;
+    }
+}
+
+/* Prevenir zoom em inputs no mobile */
+@media screen and (max-width: 768px) {
+    input, textarea, select {
+        font-size: 16px !important;
+    }
+}
     overflow-x: hidden;
     font-size: 15px;
     font-weight: 400;
@@ -316,7 +343,8 @@ body {
     transition: transform 0.2s;
 }
 
-.custom-status:has(.custom-status-list:not(.hidden)) .custom-status-btn::after {
+.custom-status:has(.custom-status-list:not(.hidden)) .custom-status-btn::after,
+.custom-status.is-open .custom-status-btn::after {
     transform: rotate(180deg);
 }
 
@@ -337,7 +365,22 @@ body {
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8) !important;
     overflow: hidden;
     display: none;
-    animation: dropdownSlideIn 0.2s ease;
+    animation: dropdownSlideIn 0.15s ease;
+}
+
+/* Portal mode: posição fixed quando movido para body */
+.custom-status-list[style*="position: fixed"] {
+    position: fixed !important;
+}
+
+/* Quando abre para cima (portal mode: top calculado bem acima do botão) */
+.custom-status-list.open-upward {
+    animation: dropdownSlideUp 0.15s ease;
+}
+
+/* Fallback: Quando abre para cima via style inline antigo */
+.custom-status-list[style*="bottom: 100%"] {
+    animation: dropdownSlideUp 0.15s ease;
 }
 
 .custom-status-list:not(.hidden) {
@@ -345,14 +388,13 @@ body {
 }
 
 @keyframes dropdownSlideIn {
-    from {
-        opacity: 0;
-        transform: translateY(-8px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dropdownSlideUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 .custom-status-option {
@@ -487,18 +529,21 @@ body {
         backdrop-filter: blur(20px);
         z-index: 1200;
         list-style: none;
-        animation: dropdownSlide 0.2s ease;
+        animation: dropdownSlide 0.15s ease;
+    }
+
+    .custom-status-list[style*="bottom: 100%"] {
+        animation: dropdownSlideUpMobile 0.15s ease;
     }
     
     @keyframes dropdownSlide {
-        from {
-            opacity: 0;
-            transform: translateY(-8px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes dropdownSlideUpMobile {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
     }
     
     .custom-status-list.hidden { display: none; }
@@ -528,7 +573,7 @@ body {
     .custom-status[data-status="concluido"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: var(--success); border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(16,185,129,0.4); }
     .custom-status[data-status="aguardando"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: var(--info); border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(59,130,246,0.4); }
     .custom-status[data-status="nao-feito"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: var(--error); border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(239,68,68,0.4); }
-    .custom-status[data-status="pular"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: var(--text-secondary); border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .custom-status[data-status="pular"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: #6b7280; border-radius: 50%; display: inline-block; margin-right: 6px; }
     .custom-status[data-status="concluido-ongoing"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: #60a5fa; border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(96,165,250,0.4); }
     .custom-status[data-status="parcialmente"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(34,197,94,0.4); }
     .custom-status[data-status="prioridade"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: var(--secondary); border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(124,58,237,0.4); }
@@ -592,11 +637,19 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 1.5rem;
-    background: var(--surface);
+    margin-bottom: 0;
+    background: rgba(4, 34, 53, 0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     padding: 1rem;
-    border-radius: 12px;
+    border-radius: 0 0 12px 12px;
     border: 1px solid var(--border);
+    border-top: none;
+    position: sticky;
+    top: 73px;     /* altura do .header sticky */
+    z-index: 90;
+    margin-left: -1rem;
+    margin-right: -1rem;
 }
 
 .date-selector h2 {
@@ -630,7 +683,7 @@ body {
     display: flex;
     gap: 8px;
     margin-bottom: 16px;
-    padding: 0 4px;
+    padding: 16px 4px 0;
     flex-wrap: wrap;
 }
 
@@ -671,6 +724,151 @@ body {
     border-color: #95d3ee;
     box-shadow: 0 0 20px rgba(149, 211, 238, 0.3);
     color: #95d3ee;
+}
+
+/* ── Aprendizados Picker (botão + dropdown na quick-nav) ───── */
+.aprendizados-picker-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 150px;
+}
+
+.btn-aprend-picker {
+    width: 100%;
+    gap: 6px;
+}
+
+.btn-aprend-picker.is-open {
+    background: rgba(149, 211, 238, 0.18);
+    border-color: rgba(149, 211, 238, 0.55);
+    color: #95d3ee;
+}
+
+.aprendizados-picker-dropdown {
+    position: fixed;
+    z-index: 9990;
+    background: #042d4a;
+    border: 1px solid rgba(149, 211, 238, 0.25);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85);
+    width: 320px;
+    max-width: 92vw;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: dropdownSlideIn 0.15s ease;
+}
+
+.aprendizados-picker-dropdown.hidden {
+    display: none;
+}
+
+.aprendizados-picker-search-wrap {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid rgba(149, 211, 238, 0.1);
+    flex-shrink: 0;
+}
+
+.aprendizados-picker-search {
+    width: 100%;
+    background: rgba(1, 57, 114, 0.5);
+    border: 1px solid rgba(149, 211, 238, 0.2);
+    border-radius: 8px;
+    padding: 7px 12px;
+    color: rgba(255,255,255,0.9);
+    font-family: 'Quicksand', sans-serif;
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.aprendizados-picker-search::placeholder {
+    color: rgba(149, 211, 238, 0.4);
+}
+
+.aprendizados-picker-search:focus {
+    border-color: rgba(149, 211, 238, 0.5);
+    background: rgba(1, 57, 114, 0.7);
+}
+
+.aprendizados-picker-list {
+    overflow-y: auto;
+    max-height: 340px;
+    padding: 6px 0;
+}
+
+.aprendizados-picker-list::-webkit-scrollbar { width: 4px; }
+.aprendizados-picker-list::-webkit-scrollbar-track { background: transparent; }
+.aprendizados-picker-list::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.2); border-radius: 4px; }
+
+/* Grupo (ex: "CLIENTES") */
+.aprendPicker-group {
+    padding: 8px 14px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(149, 211, 238, 0.5);
+    font-family: 'Quicksand', sans-serif;
+}
+
+/* Item (ex: "Wolf") com subitens */
+.aprendPicker-item-header {
+    padding: 6px 14px 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.75);
+    font-family: 'Quicksand', sans-serif;
+}
+
+/* Linha individual de aprendizado */
+.aprendPicker-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px 7px 26px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    font-family: 'Quicksand', sans-serif;
+    line-height: 1.4;
+}
+
+.aprendPicker-line:hover {
+    background: rgba(149, 211, 238, 0.1);
+    color: #fff;
+}
+
+.aprendPicker-line:active {
+    background: rgba(149, 211, 238, 0.2);
+}
+
+.aprendPicker-line-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    opacity: 0.45;
+    color: #95d3ee;
+}
+
+.aprendPicker-line-icon.done {
+    opacity: 1;
+    color: #22c55e;
+}
+
+.aprendPicker-empty {
+    padding: 20px 14px;
+    text-align: center;
+    color: rgba(149, 211, 238, 0.4);
+    font-size: 13px;
+    font-family: 'Quicksand', sans-serif;
+}
+
+.aprendPicker-separator {
+    height: 1px;
+    background: rgba(149, 211, 238, 0.08);
+    margin: 4px 0;
 }
 
 .quick-nav-history {
@@ -826,8 +1024,9 @@ body {
 
 /* When dropdown inside item is focused, increase z-index of item */
 .item:has(.item-status-select:focus),
-.item:has(.status-dropdown:focus) {
-    z-index: 150 !important;
+.item:has(.status-dropdown:focus),
+.item:has(.custom-status-list:not(.hidden)) {
+    z-index: 200 !important;
 }
 
 /* Backdrop overlay when dropdown is focused */
@@ -864,6 +1063,18 @@ body {
 }
 .item.status-pular { 
     border-left-color: var(--status-neutro);
+    background: rgba(10, 20, 30, 0.45) !important;
+    filter: grayscale(35%);
+}
+.item.status-pular .item-name {
+    color: rgba(255, 255, 255, 0.45) !important;
+}
+.item.status-pular .item-note-editable {
+    color: rgba(255, 255, 255, 0.35) !important;
+}
+.item.status-pular .custom-status-btn {
+    color: rgba(255, 255, 255, 0.6) !important;
+    border-color: rgba(149, 211, 238, 0.15) !important;
 }
 .item.status-concluido-ongoing { 
     border-left-color: #60a5fa;
@@ -918,6 +1129,9 @@ body {
     word-wrap: break-word;
     overflow-wrap: break-word;
     position: relative;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
 }
 
 .btn-note-delete {
@@ -964,6 +1178,9 @@ body {
     outline: none;
     white-space: pre-wrap;
     transition: all 0.3s ease;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
 }
 
 .item-note-editable:focus {
@@ -2411,6 +2628,12 @@ body {
         flex-wrap: wrap;
     }
     
+    .date-selector {
+        top: 64px;   /* header menor no mobile */
+        margin-left: -1rem;
+        margin-right: -1rem;
+    }
+    
     .header-title {
         font-size: 18px;
     }
@@ -2490,6 +2713,128 @@ body {
     cursor: pointer;
     transition: all 0.3s ease;
     flex-shrink: 0;
+}
+
+/* ── Botão 📚 Aprendizados dentro do item ──────────────────── */
+.btn-aprend-item {
+    background: rgba(149, 211, 238, 0.08);
+    border: 1px solid rgba(149, 211, 238, 0.18);
+    color: rgba(149, 211, 238, 0.65);
+    font-size: 15px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.btn-aprend-item:hover {
+    background: rgba(149, 211, 238, 0.18);
+    border-color: rgba(149, 211, 238, 0.45);
+    color: rgba(149, 211, 238, 0.95);
+    transform: scale(1.08);
+}
+
+.btn-aprend-item.active {
+    background: rgba(149, 211, 238, 0.22);
+    border-color: rgba(149, 211, 238, 0.6);
+    color: #95d3ee;
+}
+
+/* ── Dropdown de aprendizados por item (portal fixed) ──────── */
+.item-aprend-dropdown {
+    z-index: 9991;
+    background: #042d4a;
+    border: 1px solid rgba(149, 211, 238, 0.25);
+    border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.85);
+    min-width: 280px;
+    max-width: 360px;
+    max-height: 340px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding: 6px 0;
+    animation: dropdownSlideIn 0.13s ease;
+}
+
+.item-aprend-dropdown::-webkit-scrollbar { width: 3px; }
+.item-aprend-dropdown::-webkit-scrollbar-track { background: transparent; }
+.item-aprend-dropdown::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.2); border-radius: 3px; }
+
+/* Cabeçalho de nota (quando há múltiplas notas ou título) */
+.item-aprend-note-header {
+    padding: 6px 14px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: rgba(149, 211, 238, 0.45);
+    font-family: 'Quicksand', sans-serif;
+    border-top: 1px solid rgba(149, 211, 238, 0.08);
+    margin-top: 2px;
+}
+.item-aprend-note-header:first-child {
+    border-top: none;
+    margin-top: 0;
+}
+
+.item-aprend-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    font-family: 'Quicksand', sans-serif;
+    line-height: 1.45;
+    transition: background 0.12s ease, color 0.15s;
+}
+
+.item-aprend-line:hover {
+    background: rgba(149, 211, 238, 0.1);
+    color: #fff;
+}
+
+.item-aprend-line:active {
+    background: rgba(149, 211, 238, 0.2);
+}
+
+/* Linha já marcada (verde) */
+.item-aprend-line.done {
+    color: #22c55e;
+}
+.item-aprend-line.done:hover {
+    background: rgba(34, 197, 94, 0.08);
+    color: #4ade80;
+}
+
+.item-aprend-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    opacity: 0.45;
+    color: #95d3ee;
+    transition: color 0.15s, opacity 0.15s;
+}
+
+.item-aprend-icon.done {
+    opacity: 1;
+    color: #22c55e;
+}
+
+.item-aprend-empty {
+    padding: 14px 16px;
+    font-size: 12px;
+    color: rgba(149, 211, 238, 0.35);
+    font-family: 'Quicksand', sans-serif;
+    text-align: center;
 }
 
 .btn-mic svg {
@@ -2923,3 +3268,891 @@ body {
     }
 }
 
+/* ============================================================
+   ABA APRENDIZADOS v2 — Sistema de Pastas e Notas
+   ============================================================ */
+
+/* ── Layout 3 colunas ─────────────────────────────────────── */
+.aprend-layout {
+    display: flex;
+    height: calc(100vh - 80px);
+    overflow: hidden;
+    position: relative;
+    background: #0e1a24;
+}
+
+/* ── Colunas ──────────────────────────────────────────────── */
+.aprend-col {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid rgba(149,211,238,0.10);
+    background: #0e1a24;
+}
+.aprend-col-folders {
+    width: 230px;
+    min-width: 190px;
+    flex-shrink: 0;
+}
+.aprend-col-notes {
+    width: 285px;
+    min-width: 230px;
+    flex-shrink: 0;
+    background: #101f2b;
+}
+.aprend-col-editor {
+    flex: 1;
+    min-width: 0;
+    border-right: none;
+    background: #0d1920;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* O panel dentro da coluna precisa ocupar 100% */
+#aprendEditorPanel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* ── Cabeçalhos de coluna ─────────────────────────────────── */
+.aprend-col-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid rgba(149,211,238,0.10);
+    flex-shrink: 0;
+    min-height: 52px;
+}
+.aprend-col-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #95d3ee;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.aprend-btn-back {
+    background: none;
+    border: none;
+    color: #95d3ee;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 6px 2px 0;
+    line-height: 1;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+.aprend-btn-back:hover { opacity: 1; }
+
+/* ── Busca ────────────────────────────────────────────────── */
+.aprend-search-wrap {
+    padding: 10px 14px 8px;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(149,211,238,0.07);
+}
+.aprend-search-wrap input {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(149,211,238,0.07);
+    border: 1px solid rgba(149,211,238,0.15);
+    border-radius: 8px;
+    padding: 7px 12px;
+    color: #e8f4fa;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.aprend-search-wrap input::placeholder { color: rgba(149,211,238,0.4); }
+.aprend-search-wrap input:focus { border-color: rgba(149,211,238,0.45); }
+
+/* ── Listas com scroll ────────────────────────────────────── */
+#aprendFolderList,
+#aprendNotesList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+}
+#aprendFolderList::-webkit-scrollbar,
+#aprendNotesList::-webkit-scrollbar { width: 4px; }
+#aprendFolderList::-webkit-scrollbar-track,
+#aprendNotesList::-webkit-scrollbar-track { background: transparent; }
+#aprendFolderList::-webkit-scrollbar-thumb,
+#aprendNotesList::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.18); border-radius: 4px; }
+
+/* ── Linha de pasta (nível 1) ─────────────────────────────── */
+.aprend-folder-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 2px 8px;
+    transition: background 0.15s;
+    position: relative;
+}
+.aprend-folder-row:hover { background: rgba(149,211,238,0.08); }
+.aprend-folder-row.active { background: rgba(149,211,238,0.14); }
+
+.aprend-folder-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+    width: 24px;
+    text-align: center;
+}
+.aprend-folder-info {
+    flex: 1;
+    min-width: 0;
+}
+.aprend-folder-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #d4eaf5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.aprend-folder-count {
+    font-size: 11px;
+    color: rgba(149,211,238,0.55);
+    margin-top: 1px;
+}
+.aprend-folder-sep {
+    height: 1px;
+    background: rgba(149,211,238,0.08);
+    margin: 6px 16px;
+}
+.aprend-chevron {
+    font-size: 11px;
+    color: rgba(149,211,238,0.4);
+    flex-shrink: 0;
+}
+
+/* ── Linha de subpasta (nível 2) ──────────────────────────── */
+.aprend-subfolder-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 2px 8px;
+    transition: background 0.15s;
+}
+.aprend-subfolder-row:hover { background: rgba(149,211,238,0.08); }
+.aprend-subfolder-row.active { background: rgba(149,211,238,0.14); }
+
+.aprend-subfolder-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+    width: 22px;
+    text-align: center;
+}
+.aprend-subfolder-info {
+    flex: 1;
+    min-width: 0;
+}
+.aprend-subfolder-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #cde6f4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Card de nota ─────────────────────────────────────────── */
+.aprend-note-card {
+    padding: 11px 14px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 3px 8px;
+    border-left: 3px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+}
+.aprend-note-card:hover { background: rgba(149,211,238,0.08); }
+.aprend-note-card.active {
+    background: rgba(149,211,238,0.13);
+    border-left-color: #95d3ee;
+}
+.aprend-note-card-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.aprend-note-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ddeef8;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.aprend-note-date {
+    font-size: 10px;
+    color: rgba(149,211,238,0.45);
+    flex-shrink: 0;
+}
+.aprend-note-preview {
+    font-size: 12px;
+    color: rgba(200,230,245,0.5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Botão nova nota ──────────────────────────────────────── */
+.aprend-btn-new-note {
+    position: absolute;
+    bottom: 18px;
+    right: 14px;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: #1e6fa3;
+    border: none;
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.35);
+    transition: background 0.2s, transform 0.15s;
+    z-index: 5;
+    flex-shrink: 0;
+}
+.aprend-btn-new-note:hover {
+    background: #2a82bb;
+    transform: scale(1.08);
+}
+/* ensure the notes column is relatively positioned for the abs btn */
+.aprend-col-notes { position: relative; }
+
+.aprend-notes-empty {
+    padding: 28px 16px;
+    text-align: center;
+    color: rgba(149,211,238,0.35);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+/* ── Editor: wrapper ──────────────────────────────────────── */
+.aprend-editor-wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+    position: relative; /* anchor para o menu de opções */
+}
+
+/* ── Editor: cabeçalho ────────────────────────────────────── */
+.aprend-editor-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(149,211,238,0.10);
+    flex-shrink: 0;
+}
+.aprend-editor-back {
+    background: none;
+    border: none;
+    color: #95d3ee;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 6px 2px 0;
+    opacity: 0.7;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+    display: none; /* shown only on mobile */
+}
+.aprend-editor-back:hover { opacity: 1; }
+
+.aprend-editor-title-input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: #e8f4fa;
+    font-size: 16px;
+    font-weight: 700;
+    caret-color: #95d3ee;
+}
+.aprend-editor-title-input::placeholder { color: rgba(149,211,238,0.3); }
+
+.aprend-editor-action-btn {
+    background: none;
+    border: none;
+    color: rgba(149,211,238,0.6);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: color 0.15s, background 0.15s;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.aprend-editor-action-btn:hover {
+    color: #95d3ee;
+    background: rgba(149,211,238,0.1);
+}
+
+/* ── Editor: metadados ────────────────────────────────────── */
+.aprend-editor-meta {
+    padding: 4px 16px 6px;
+    font-size: 11px;
+    color: rgba(149,211,238,0.35);
+    border-bottom: 1px solid rgba(149,211,238,0.07);
+    flex-shrink: 0;
+}
+
+/* ── Editor: toolbar ──────────────────────────────────────── */
+.aprend-editor-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(149,211,238,0.08);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+.aprend-toolbar-btn {
+    background: none;
+    border: none;
+    color: rgba(149,211,238,0.55);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 4px 7px;
+    border-radius: 5px;
+    transition: color 0.15s, background 0.15s;
+    line-height: 1.2;
+    min-width: 28px;
+    text-align: center;
+}
+.aprend-toolbar-btn:hover {
+    color: #95d3ee;
+    background: rgba(149,211,238,0.10);
+}
+.aprend-toolbar-btn.active {
+    color: #95d3ee;
+    background: rgba(149,211,238,0.15);
+}
+.aprend-toolbar-btn-danger {
+    color: rgba(220,100,100,0.55) !important;
+    margin-left: auto; /* empurra para o extremo direito */
+}
+.aprend-toolbar-btn-danger:hover {
+    color: #e07070 !important;
+    background: rgba(220,80,80,0.12) !important;
+}
+/* Botão toggle modo linhas/texto — azul quando em modo texto */
+.aprend-btn-mode-toggle.active {
+    color: #95d3ee !important;
+    background: rgba(149,211,238,0.14) !important;
+}
+/* Modo texto: esconde botões de check, remove padding extra */
+.aprend-line-rows.aprend-mode-text .aprend-line-check-btn {
+    display: none !important;
+}
+.aprend-line-rows.aprend-mode-text .aprend-line-row {
+    padding-left: 10px;
+}
+.aprend-toolbar-sep {
+    width: 1px;
+    height: 18px;
+    background: rgba(149,211,238,0.12);
+    margin: 0 4px;
+    flex-shrink: 0;
+}
+
+/* ── Editor: área de texto ────────────────────────────────── */
+.aprend-editor-body {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+.aprend-drop-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(30, 111, 163, 0.3);
+    border: 2px dashed #95d3ee;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #95d3ee;
+    font-size: 16px;
+    font-weight: 600;
+    z-index: 10;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.aprend-drop-overlay.visible { opacity: 1; }
+
+.aprend-editor-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    outline: none;
+    color: #d8edf8;
+    font-size: 14px;
+    line-height: 1.7;
+    caret-color: #95d3ee;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.aprend-editor-content:empty::before {
+    content: attr(data-placeholder);
+    color: rgba(149,211,238,0.25);
+    pointer-events: none;
+}
+.aprend-editor-content::-webkit-scrollbar { width: 4px; }
+.aprend-editor-content::-webkit-scrollbar-track { background: transparent; }
+.aprend-editor-content::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.18); border-radius: 4px; }
+
+/* ensure all children inherit color */
+.aprend-editor-content,
+.aprend-editor-content * {
+    color: #d8edf8 !important;
+}
+
+/* ── Attachments ──────────────────────────────────────────── */
+.aprend-attachments-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 16px 12px;
+    border-top: 1px solid rgba(149,211,238,0.08);
+    flex-shrink: 0;
+    overflow-y: auto;
+    max-height: 200px;
+}
+.aprend-attachments-list:empty { display: none; }
+.aprend-attachments-list::-webkit-scrollbar { height: 4px; }
+.aprend-attachments-list::-webkit-scrollbar-track { background: transparent; }
+.aprend-attachments-list::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.18); border-radius: 4px; }
+
+.aprend-attach-img-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+.aprend-attach-img {
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid rgba(149,211,238,0.15);
+    transition: opacity 0.15s;
+    display: block;
+}
+.aprend-attach-img:hover { opacity: 0.85; }
+
+.aprend-attach-video-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+.aprend-attach-video {
+    width: 120px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid rgba(149,211,238,0.15);
+    display: block;
+}
+
+.aprend-attach-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(149,211,238,0.07);
+    border: 1px solid rgba(149,211,238,0.15);
+    border-radius: 8px;
+    padding: 8px 10px;
+    max-width: 200px;
+    flex-shrink: 0;
+}
+.aprend-attach-file-icon { font-size: 22px; flex-shrink: 0; }
+.aprend-attach-file-info { min-width: 0; flex: 1; }
+.aprend-attach-file-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #c8e2f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 130px;
+}
+.aprend-attach-file-size { font-size: 10px; color: rgba(149,211,238,0.45); margin-top: 1px; }
+.aprend-attach-dl {
+    background: none;
+    border: none;
+    color: rgba(149,211,238,0.6);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.15s;
+    flex-shrink: 0;
+}
+.aprend-attach-dl:hover { color: #95d3ee; }
+
+.aprend-attach-del {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(220,60,60,0.85);
+    border: none;
+    color: #fff;
+    font-size: 10px;
+    line-height: 18px;
+    text-align: center;
+    cursor: pointer;
+    display: none;
+    padding: 0;
+    z-index: 2;
+}
+.aprend-attach-img-wrap:hover .aprend-attach-del,
+.aprend-attach-video-wrap:hover .aprend-attach-del,
+.aprend-attach-file:hover .aprend-attach-del { display: block; }
+
+.aprend-attach-warn {
+    width: 100%;
+    text-align: center;
+    font-size: 11px;
+    color: rgba(220,140,60,0.7);
+    padding: 2px 0;
+}
+
+/* ── Menu de opções ───────────────────────────────────────── */
+.aprend-options-menu {
+    position: absolute;
+    top: 52px;
+    right: 10px;
+    background: #13253a;
+    border: 1px solid rgba(149,211,238,0.20);
+    border-radius: 12px;
+    box-shadow: 0 10px 32px rgba(0,0,0,0.55);
+    z-index: 300;
+    min-width: 200px;
+    padding: 6px 0;
+    animation: aprendMenuIn 0.12s ease;
+    overflow: hidden;
+}
+@keyframes aprendMenuIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.aprend-option-item {
+    width: 100%;
+    box-sizing: border-box;
+    background: none;
+    border: none;
+    outline: none;
+    padding: 11px 18px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #cde6f4;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: background 0.12s;
+    text-align: left;
+}
+.aprend-option-item:hover { background: rgba(149,211,238,0.10); }
+.aprend-option-item.danger { color: #e07070; }
+.aprend-option-item.danger:hover { background: rgba(220,80,80,0.12); }
+.aprend-option-sep {
+    height: 1px;
+    background: rgba(149,211,238,0.10);
+    margin: 3px 0;
+}
+
+/* ── Toast ────────────────────────────────────────────────── */
+.aprend-toast {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: #1a3a52;
+    border: 1px solid rgba(149,211,238,0.25);
+    color: #cde6f4;
+    padding: 10px 20px;
+    border-radius: 24px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+    white-space: nowrap;
+}
+.aprend-toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+.aprend-toast.success { border-color: rgba(80,200,120,0.4); color: #7de8a6; }
+.aprend-toast.error   { border-color: rgba(220,80,80,0.4);  color: #e08080; }
+
+/* ── Resultados de busca ──────────────────────────────────── */
+#aprendSearchResults {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+#aprendSearchResults::-webkit-scrollbar { width: 4px; }
+#aprendSearchResults::-webkit-scrollbar-track { background: transparent; }
+#aprendSearchResults::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.18); border-radius: 4px; }
+
+.aprend-search-result {
+    padding: 10px 14px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 2px 8px;
+    border-left: 3px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+}
+.aprend-search-result:hover {
+    background: rgba(149,211,238,0.08);
+    border-left-color: rgba(149,211,238,0.4);
+}
+.aprend-search-result-path {
+    font-size: 10px;
+    color: rgba(149,211,238,0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin-bottom: 3px;
+}
+.aprend-search-result-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ddeef8;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.aprend-search-result-snippet {
+    font-size: 12px;
+    color: rgba(200,228,244,0.5);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.aprend-hl { background: rgba(149,211,238,0.3); color: #e8f4fa !important; border-radius: 2px; padding: 0 1px; }
+.aprend-search-empty {
+    padding: 28px 16px;
+    text-align: center;
+    color: rgba(149,211,238,0.35);
+    font-size: 13px;
+}
+
+/* ── Lightbox ─────────────────────────────────────────────── */
+.aprend-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.88);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: aprendLbIn 0.18s ease;
+}
+.aprend-lightbox.hidden { display: none; }
+@keyframes aprendLbIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+.aprend-lightbox-close {
+    position: fixed;
+    top: 18px;
+    right: 22px;
+    background: rgba(255,255,255,0.12);
+    border: none;
+    color: #fff;
+    font-size: 22px;
+    cursor: pointer;
+    border-radius: 50%;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+.aprend-lightbox-close:hover { background: rgba(255,255,255,0.22); }
+#aprendLightboxImg {
+    max-width: 92vw;
+    max-height: 88vh;
+    border-radius: 8px;
+    object-fit: contain;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+
+/* ── Estado vazio do editor ───────────────────────────────── */
+.aprend-editor-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: rgba(149,211,238,0.25);
+    font-size: 14px;
+    gap: 12px;
+    text-align: center;
+    padding: 24px;
+}
+.aprend-editor-empty span:first-child { font-size: 42px; }
+
+/* ── Editor: linhas clicáveis ──────────────────────────────── */
+.aprend-line-rows {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 8px 20px;
+}
+.aprend-line-rows::-webkit-scrollbar { width: 4px; }
+.aprend-line-rows::-webkit-scrollbar-track { background: transparent; }
+.aprend-line-rows::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.18); border-radius: 4px; }
+
+.aprend-line-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 3px 8px 3px 4px;
+    border-radius: 6px;
+    min-height: 30px;
+    transition: background 0.12s;
+}
+.aprend-line-row:hover { background: rgba(149,211,238,0.05); }
+.aprend-line-row.checked .aprend-line-text { color: #50c878 !important; text-decoration: none; }
+
+.aprend-line-check-btn {
+    background: none;
+    border: none;
+    color: rgba(149,211,238,0.35);
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    margin-top: 4px;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, background 0.15s;
+}
+.aprend-line-check-btn:hover {
+    color: #95d3ee;
+    background: rgba(149,211,238,0.1);
+}
+.aprend-line-row.checked .aprend-line-check-btn { color: #50c878; }
+
+.aprend-line-text {
+    flex: 1;
+    outline: none;
+    color: #d8edf8 !important;
+    font-size: 14px;
+    line-height: 1.7;
+    min-height: 24px;
+    caret-color: #95d3ee;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+.aprend-line-text:empty::before {
+    content: 'Comece a escrever...';
+    color: rgba(149,211,238,0.2);
+    pointer-events: none;
+}
+.aprend-line-text * { color: #d8edf8 !important; }
+
+/* ── Botão câmera (toolbar) ───────────────────────────────── */
+.aprend-btn-camera {
+    background: none;
+    border: none;
+    color: rgba(149,211,238,0.55);
+    font-size: 14px;
+    cursor: pointer;
+    padding: 4px 7px;
+    border-radius: 5px;
+    transition: color 0.15s, background 0.15s;
+}
+.aprend-btn-camera:hover {
+    color: #95d3ee;
+    background: rgba(149,211,238,0.10);
+}
+
+/* ── Mobile (≤768px) ──────────────────────────────────────── */
+@media (max-width: 768px) {
+    .aprend-layout {
+        height: calc(100vh - 60px);
+        overflow: hidden;
+    }
+
+    .aprend-col {
+        position: absolute;
+        inset: 0;
+        width: 100% !important;
+        min-width: unset !important;
+        transition: transform 0.3s ease;
+        will-change: transform;
+        z-index: 1;
+    }
+
+    /* default off-screen positions */
+    .aprend-col-folders  { transform: translateX(0); }
+    .aprend-col-notes    { transform: translateX(100%); }
+    .aprend-col-editor   { transform: translateX(100%); }
+
+    /* active column slides into view */
+    .aprend-col.mobile-active { transform: translateX(0) !important; z-index: 2; }
+
+    /* columns to the left slide out left */
+    .aprend-col-folders.mobile-left  { transform: translateX(-40%); }
+    .aprend-col-notes.mobile-left    { transform: translateX(-40%); }
+
+    .aprend-editor-back  { display: flex; }
+
+    /* Botão nova nota: fixo na viewport no mobile */
+    .aprend-btn-new-note {
+        position: fixed;
+        bottom: 22px;
+        right: 16px;
+        z-index: 999;
+    }
+
+    /* Esconde o botão quando a coluna de notas não está ativa */
+    .aprend-col-notes:not(.mobile-active) .aprend-btn-new-note {
+        display: none !important;
+    }
+
+    /* Espaço para o botão flutuante não cobrir o último item */
+    #aprendNotesList {
+        padding-bottom: 80px;
+    }
+
+    .aprend-options-menu { right: 8px; left: 8px; min-width: unset; }
+}

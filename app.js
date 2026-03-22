@@ -22,6 +22,26 @@ class HabitTrackerApp {
         this.setupEventListeners();
         this.initSpeech();
         this.renderTodayView();
+        // Se havia um re-render pendente (sync do Supabase chegou antes do app inicializar)
+        if (window._pendingRerender) {
+            window._pendingRerender = false;
+            this.renderCurrentView();
+        }
+    }
+
+    // Re-renderiza a view ativa atual (usado após sync do Supabase)
+    renderCurrentView() {
+        console.log('Re-renderizando view após sync:', this.currentView);
+        if (this.currentView === 'today') {
+            this.renderTodayView();
+        } else if (this.currentView === 'history') {
+            this.renderHistory(7);
+        } else if (this.currentView === 'reports') {
+            this.renderReports(this.currentReportPeriod || 'week');
+        } else if (this.currentView === 'aprendizados') {
+            if (typeof Aprendizados !== 'undefined') Aprendizados.onShow();
+        }
+        // settings não precisa de re-render de dados
     }
 
     // Show custom confirmation modal
@@ -157,7 +177,7 @@ class HabitTrackerApp {
         this.recognition.continuous = false;
         this.recognitionSupported = true;
 
-        this.recognition.addEventListener('result', (e) => {
+        this.recognition.addEventListener('result', async (e) => {
             const transcript = Array.from(e.results)
                 .map(r => r[0].transcript)
                 .join('')
@@ -169,12 +189,12 @@ class HabitTrackerApp {
             if (this.currentRecording) {
                 const dateStr = this.getDateString();
                 const { category, itemId } = this.currentRecording;
-                const existing = StorageManager.getItemStatus(dateStr, category, itemId);
+                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
                 const prevNote = existing.note || '';
                 const timestamp = new Date().toLocaleTimeString();
                 const appended = (prevNote ? prevNote + '\n' : '') + `[voz ${timestamp}] ` + transcript;
 
-                StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', appended);
+                await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', appended);
                 // update view
                 this.renderTodayView();
             }
@@ -253,6 +273,7 @@ class HabitTrackerApp {
         document.getElementById('btnToday').addEventListener('click', () => this.showView('today'));
         document.getElementById('btnHistory').addEventListener('click', () => this.showView('history'));
         document.getElementById('btnReports').addEventListener('click', () => this.showView('reports'));
+        document.getElementById('btnAprendizados').addEventListener('click', () => this.showView('aprendizados'));
 
         // Date navigation
         document.getElementById('btnPrevDay').addEventListener('click', () => this.changeDate(-1));
@@ -267,11 +288,11 @@ class HabitTrackerApp {
 
         // Report period buttons
         document.querySelectorAll('.btn-period').forEach(btn => {
-            btn.addEventListener('click', (e) => {
+            btn.addEventListener('click', async (e) => {
                 document.querySelectorAll('.btn-period').forEach(b => b.classList.remove('active'));
                 e.currentTarget.classList.add('active');
                 const period = e.currentTarget.dataset.period;
-                this.renderReports(period);
+                await this.renderReports(period);
             });
         });
 
@@ -540,13 +561,410 @@ class HabitTrackerApp {
             console.log('User confirmed deletion for:', { category, itemId }); // Debug log
             
             const dateStr = this.getDateString();
-            const existing = StorageManager.getItemStatus(dateStr, category, itemId);
-            StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', '');
+            const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+            await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', '');
             this.renderTodayView();
         }, true); // Use capturing phase
+
+        // Aprendizados Picker
+        this.initAprendizadosPicker();
     }
 
-    showView(view) {
+    // ─── Aprendizados Picker: dropdown na quick-nav ─────────────────────
+    initAprendizadosPicker() {
+        const btn = document.getElementById('btnAprend');
+        const dropdown = document.getElementById('aprendPickerDropdown');
+        const searchInput = document.getElementById('aprendPickerSearch');
+        if (!btn || !dropdown) return;
+
+        const closeDropdown = () => {
+            dropdown.classList.add('hidden');
+            btn.classList.remove('is-open');
+        };
+
+        const openDropdown = () => {
+            this._buildAprendPickerList('');
+            // Posicionar fora da tela antes de mostrar (para medir sem flicker)
+            dropdown.style.top = '-9999px';
+            dropdown.style.left = '-9999px';
+            dropdown.classList.remove('hidden');
+            btn.classList.add('is-open');
+            if (searchInput) searchInput.value = '';
+
+            requestAnimationFrame(() => {
+                const btnRect = btn.getBoundingClientRect();
+                const dropRect = dropdown.getBoundingClientRect();
+                const spaceBelow = window.innerHeight - btnRect.bottom;
+                const spaceAbove = btnRect.top;
+
+                // Vertical
+                if (spaceBelow < dropRect.height + 8 && spaceAbove > dropRect.height) {
+                    dropdown.style.top = `${btnRect.top - dropRect.height - 6}px`;
+                } else {
+                    dropdown.style.top = `${btnRect.bottom + 6}px`;
+                }
+
+                // Horizontal: alinhar pela esquerda do botão, não sair da tela
+                const left = Math.min(btnRect.left, window.innerWidth - dropRect.width - 8);
+                dropdown.style.left = `${Math.max(8, left)}px`;
+            });
+            setTimeout(() => searchInput?.focus(), 80);
+        };
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (dropdown.classList.contains('hidden')) {
+                openDropdown();
+            } else {
+                closeDropdown();
+            }
+        });
+
+        // Fechar ao clicar fora
+        document.addEventListener('click', (e) => {
+            if (!dropdown.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+                closeDropdown();
+            }
+        });
+
+        // Fechar ao scroll
+        window.addEventListener('scroll', () => {
+            if (!dropdown.classList.contains('hidden')) closeDropdown();
+        }, true);
+
+        // Fechar com ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !dropdown.classList.contains('hidden')) closeDropdown();
+        });
+
+        // Busca em tempo real
+        searchInput?.addEventListener('input', (e) => {
+            this._buildAprendPickerList(e.target.value.trim().toLowerCase());
+        });
+        searchInput?.addEventListener('keydown', (e) => e.stopPropagation());
+
+        // Mover dropdown para body (portal) para escapar overflow/stacking
+        document.body.appendChild(dropdown);
+    }
+
+    _buildAprendPickerList(filter) {
+        const listEl = document.getElementById('aprendPickerList');
+        if (!listEl) return;
+        listEl.innerHTML = '';
+
+        // Lê dados do aprendizados do localStorage
+        let aprendData = {};
+        try {
+            aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
+        } catch { aprendData = {}; }
+
+        const groups = [
+            { key: 'clientes',   label: '👥 Clientes',  items: APP_DATA.clientes },
+            { key: 'categorias', label: '🏢 Empresa',   items: APP_DATA.categorias },
+            { key: 'atividades', label: '👤 Pessoal',   items: APP_DATA.atividades }
+        ];
+
+        let totalLines = 0;
+
+        groups.forEach(({ key, label, items }) => {
+            let groupAdded = false;
+
+            items.forEach(item => {
+                const noteData = aprendData[key]?.[item.id];
+                const content = noteData?.content || '';
+                const checkedLines = noteData?.checkedLines || {};
+                if (!content.trim()) return;
+
+                const lines = content.split('\n').filter(l => l.trim() !== '');
+                const cleanName = item.name.replace(/^✅\s*/, '');
+
+                // Filtrar por busca
+                const matchedLines = filter
+                    ? lines.filter(l => l.toLowerCase().includes(filter) || cleanName.toLowerCase().includes(filter))
+                    : lines;
+
+                if (matchedLines.length === 0) return;
+
+                // Adicionar header do grupo (uma vez por grupo)
+                if (!groupAdded) {
+                    if (totalLines > 0) {
+                        const sep = document.createElement('div');
+                        sep.className = 'aprendPicker-separator';
+                        listEl.appendChild(sep);
+                    }
+                    const groupEl = document.createElement('div');
+                    groupEl.className = 'aprendPicker-group';
+                    groupEl.textContent = label.replace(/^\S+\s/, '').toUpperCase();
+                    listEl.appendChild(groupEl);
+                    groupAdded = true;
+                }
+
+                // Header do item
+                const itemHeader = document.createElement('div');
+                itemHeader.className = 'aprendPicker-item-header';
+                itemHeader.textContent = cleanName;
+                listEl.appendChild(itemHeader);
+
+                // Cada linha
+                matchedLines.forEach((lineText, lineIdx) => {
+                    // índice real na lista de linhas (para checar checkedLines)
+                    const realIdx = lines.indexOf(lineText);
+                    const isChecked = !!checkedLines[realIdx];
+
+                    const lineEl = document.createElement('div');
+                    lineEl.className = 'aprendPicker-line';
+                    lineEl.innerHTML = `
+                        <svg class="aprendPicker-line-icon${isChecked ? ' done' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            ${isChecked
+                                ? '<polyline points="20 6 9 17 4 12"></polyline>'
+                                : '<circle cx="12" cy="12" r="9"></circle>'
+                            }
+                        </svg>
+                        <span>${lineText}</span>
+                    `;
+
+                    lineEl.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await this._addAprendLineToHoje(key, item.id, lineText);
+                        // Fechar dropdown
+                        document.getElementById('aprendPickerDropdown')?.classList.add('hidden');
+                        document.getElementById('btnAprend')?.classList.remove('is-open');
+                    });
+
+                    listEl.appendChild(lineEl);
+                    totalLines++;
+                });
+            });
+        });
+
+        if (totalLines === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'aprendPicker-empty';
+            empty.textContent = filter
+                ? 'Nenhum resultado encontrado'
+                : 'Nenhuma anotação em Aprendizados ainda';
+            listEl.appendChild(empty);
+        }
+    }
+
+    async _addAprendLineToHoje(category, itemId, lineText) {
+        try {
+            const dateStr = this.getDateString();
+            const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+            const existingNote = existing.note || '';
+            // Evita duplicar linha
+            const newNote = existingNote
+                ? (existingNote.includes(lineText) ? existingNote : existingNote + '\n' + lineText)
+                : lineText;
+            await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', newNote);
+            this.renderTodayView();
+
+            // Feedback visual no botão
+            const btn = document.getElementById('btnAprend');
+            if (btn) {
+                const orig = btn.innerHTML;
+                btn.innerHTML = '✓ Adicionado!';
+                btn.style.color = '#22c55e';
+                btn.style.borderColor = '#22c55e';
+                setTimeout(() => {
+                    btn.innerHTML = orig;
+                    btn.style.color = '';
+                    btn.style.borderColor = '';
+                }, 1800);
+            }
+        } catch(err) {
+            console.error('Erro ao adicionar linha ao Hoje:', err);
+        }
+    }
+
+    // ─── Dropdown de aprendizados por item ──────────────────────────────
+    _closeAllItemAprendDropdowns() {
+        document.querySelectorAll('.item-aprend-dropdown').forEach(d => {
+            if (d.parentElement === document.body) {
+                d.remove();
+            }
+        });
+        document.querySelectorAll('.btn-aprend-item.active').forEach(b => b.classList.remove('active'));
+    }
+
+    async _toggleItemAprendDropdown(btn, category, itemId, noteEditable) {
+        // Se já há um dropdown aberto para este botão, fechar
+        const existing = document.querySelector(`.item-aprend-dropdown[data-item-id="${itemId}"][data-category="${category}"]`);
+        if (existing) {
+            this._closeAllItemAprendDropdowns();
+            return;
+        }
+
+        // Fechar qualquer outro dropdown aberto
+        this._closeAllItemAprendDropdowns();
+
+        // Ler todas as notas do item (formato novo notes:[] e legado)
+        let aprendData = {};
+        try { aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}'); } catch {}
+
+        const rawItem = aprendData[category]?.[itemId];
+        let notes = [];
+        if (rawItem) {
+            if (Array.isArray(rawItem.notes) && rawItem.notes.length > 0) {
+                notes = rawItem.notes;
+            } else if (typeof rawItem.content !== 'undefined') {
+                // Formato legado: criar nota virtual
+                notes = [{
+                    id: '__legacy__',
+                    title: '',
+                    content: rawItem.content || '',
+                    checkedLines: rawItem.checkedLines || {},
+                }];
+            }
+        }
+
+        // Ler nota atual do item no hoje (para saber quais linhas já foram adicionadas)
+        const dateStr = this.getDateString();
+        let currentNoteText = '';
+        try {
+            const cur = await StorageManager.getItemStatus(dateStr, category, itemId);
+            currentNoteText = cur.note || '';
+        } catch {}
+        const todayLines = new Set(
+            currentNoteText.split('\n').map(l => l.trim()).filter(Boolean)
+        );
+
+        // Construir dropdown
+        const dropdown = document.createElement('div');
+        dropdown.className = 'item-aprend-dropdown';
+        dropdown.dataset.itemId = itemId;
+        dropdown.dataset.category = category;
+
+        // Contar total de linhas com conteúdo em todas as notas
+        const totalLines = notes.reduce((acc, n) =>
+            acc + (n.content || '').split('\n').filter(l => l.trim()).length, 0);
+
+        if (totalLines === 0) {
+            dropdown.innerHTML = `<div class="item-aprend-empty">Nenhuma anotação em Aprendizados para este item</div>`;
+        } else {
+            notes.forEach((note) => {
+                const noteLines = (note.content || '').split('\n').filter(l => l.trim() !== '');
+                if (noteLines.length === 0) return;
+
+                // Cabeçalho da nota (só se houver título ou múltiplas notas)
+                if (notes.length > 1 || note.title) {
+                    const headerEl = document.createElement('div');
+                    headerEl.className = 'item-aprend-note-header';
+                    headerEl.textContent = note.title || 'Nota';
+                    dropdown.appendChild(headerEl);
+                }
+
+                noteLines.forEach((lineText, lineIdx) => {
+                    // realIdx = índice no content.split('\n') incluindo linhas vazias
+                    // (para bater com checkedLines que usa esse índice)
+                    const allLines = (note.content || '').split('\n');
+                    let realIdx = 0, nonEmptyCount = 0;
+                    for (let i = 0; i < allLines.length; i++) {
+                        if (allLines[i].trim() !== '') {
+                            if (nonEmptyCount === lineIdx) { realIdx = i; break; }
+                            nonEmptyCount++;
+                        }
+                    }
+
+                    const inNote = todayLines.has(lineText.trim());
+                    const isChecked = !!(note.checkedLines && note.checkedLines[realIdx]) || inNote;
+
+                    const lineEl = document.createElement('div');
+                    lineEl.className = 'item-aprend-line' + (isChecked ? ' done' : '');
+                    lineEl.innerHTML = `
+                        <svg class="item-aprend-icon${isChecked ? ' done' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            ${isChecked
+                                ? '<polyline points="20 6 9 17 4 12"></polyline>'
+                                : '<circle cx="12" cy="12" r="9"></circle>'
+                            }
+                        </svg>
+                        <span>${lineText}</span>
+                    `;
+                    lineEl.addEventListener('mousedown', async (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+
+                        // Inserir no noteEditable
+                        const currentText = noteEditable.innerText.trim();
+                        noteEditable.innerText = currentText
+                            ? (currentText.includes(lineText) ? currentText : currentText + '\n' + lineText)
+                            : lineText;
+
+                        // Salvar imediatamente
+                        const existingData = await StorageManager.getItemStatus(dateStr, category, itemId);
+                        await StorageManager.saveItemStatus(dateStr, category, itemId, existingData.status || 'none', noteEditable.innerText.trim());
+
+                        // Marcar verde na aba Aprendizados
+                        if (typeof Aprendizados !== 'undefined' && Aprendizados.setLineChecked) {
+                            Aprendizados.setLineChecked(category, itemId, realIdx, true, note.id);
+                        }
+
+                        // Atualizar visual da linha no dropdown imediatamente
+                        lineEl.classList.add('done');
+                        lineEl.querySelector('.item-aprend-icon')?.classList.add('done');
+                        lineEl.querySelector('.item-aprend-icon').innerHTML = '<polyline points="20 6 9 17 4 12"></polyline>';
+
+                        // Fechar dropdown com pequeno delay para mostrar o verde
+                        setTimeout(() => this._closeAllItemAprendDropdowns(), 350);
+                        this.renderTodayView();
+                    });
+                    dropdown.appendChild(lineEl);
+                });
+            });
+        }
+
+        // Portal: mover para body com position fixed
+        dropdown.style.position = 'fixed';
+        dropdown.style.top = '-9999px';
+        dropdown.style.left = '-9999px';
+        document.body.appendChild(dropdown);
+        btn.classList.add('active');
+
+        // Posicionar após render
+        requestAnimationFrame(() => {
+            const btnRect = btn.getBoundingClientRect();
+            const dropRect = dropdown.getBoundingClientRect();
+            const spaceBelow = window.innerHeight - btnRect.bottom;
+            const spaceAbove = btnRect.top;
+
+            if (spaceBelow < dropRect.height + 8 && spaceAbove > dropRect.height) {
+                dropdown.style.top = `${btnRect.top - dropRect.height - 6}px`;
+            } else {
+                dropdown.style.top = `${btnRect.bottom + 4}px`;
+            }
+
+            const left = Math.min(btnRect.right - dropRect.width, window.innerWidth - dropRect.width - 8);
+            dropdown.style.left = `${Math.max(8, left)}px`;
+        });
+
+        // Fechar ao clicar fora; scroll DENTRO do dropdown é permitido
+        const closeHandler = (ev) => {
+            if (!dropdown.contains(ev.target) && ev.target !== btn) {
+                this._closeAllItemAprendDropdowns();
+                document.removeEventListener('click', closeHandler, true);
+                window.removeEventListener('scroll', scrollClose, true);
+            }
+        };
+        const scrollClose = (ev) => {
+            // Ignorar scroll que originou DENTRO do dropdown (permite rolar a lista)
+            const path = ev.composedPath ? ev.composedPath() : [ev.target];
+            if (path.includes(dropdown)) return;
+            this._closeAllItemAprendDropdowns();
+            document.removeEventListener('click', closeHandler, true);
+            window.removeEventListener('scroll', scrollClose, true);
+        };
+        setTimeout(() => {
+            document.addEventListener('click', closeHandler, true);
+            window.addEventListener('scroll', scrollClose, true);
+        }, 0);
+    }
+
+    async showView(view) {
+        // Salvar nota de aprendizado se estava nessa aba
+        if (this.currentView === 'aprendizados' && typeof Aprendizados !== 'undefined') {
+            Aprendizados.onHide();
+        }
+
         this.currentView = view;
         document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
         
@@ -560,11 +978,23 @@ class HabitTrackerApp {
         } else if (view === 'history') {
             document.getElementById('historyView').classList.remove('hidden');
             document.getElementById('btnHistory').classList.add('active');
-            this.renderHistory(7);
+            await this.renderHistory(7);
         } else if (view === 'reports') {
             document.getElementById('reportsView').classList.remove('hidden');
             document.getElementById('btnReports').classList.add('active');
-            this.renderReports('week');
+            await this.renderReports('week');
+        } else if (view === 'aprendizados') {
+            document.getElementById('aprendizadosView').classList.remove('hidden');
+            document.getElementById('btnAprendizados').classList.add('active');
+            if (typeof Aprendizados !== 'undefined') {
+                // Inicializar na primeira visita
+                if (!this._aprendizadosInited) {
+                    Aprendizados.init();
+                    this._aprendizadosInited = true;
+                } else {
+                    Aprendizados.onShow();
+                }
+            }
         }
     }
 
@@ -574,7 +1004,11 @@ class HabitTrackerApp {
     }
 
     getDateString(date = this.currentDate) {
-        return date.toISOString().split('T')[0];
+        // Usa data LOCAL (não UTC) para evitar bug de virada de dia em fusos horários como Brasil (UTC-3)
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
 
     formatDate(date) {
@@ -592,6 +1026,8 @@ class HabitTrackerApp {
     renderTodayView() {
         // Clear any existing edit mode when re-rendering
         this.exitCurrentEditMode(true);
+        // Fechar dropdown de aprendizados por item se aberto
+        this._closeAllItemAprendDropdowns();
         
         // Clean up old event listeners
         if (this._statusClickHandlers) {
@@ -607,22 +1043,31 @@ class HabitTrackerApp {
             });
             this._statusEscapeHandlers = [];
         }
+
+        if (this._statusScrollHandlers) {
+            this._statusScrollHandlers.forEach(handler => {
+                window.removeEventListener('scroll', handler, true);
+            });
+            this._statusScrollHandlers = [];
+        }
         
         document.getElementById('currentDate').textContent = this.formatDate(this.currentDate);
         const dateStr = this.getDateString();
 
-        // Render each category
-        this.renderCategoryItems('clientes', 'clientesList', APP_DATA.clientes, dateStr);
-        this.renderCategoryItems('categorias', 'categoriasList', APP_DATA.categorias, dateStr);
-        this.renderCategoryItems('atividades', 'atividadesList', APP_DATA.atividades, dateStr);
+        // Render each category (now async)
+        Promise.all([
+            this.renderCategoryItems('clientes', 'clientesList', APP_DATA.clientes, dateStr),
+            this.renderCategoryItems('categorias', 'categoriasList', APP_DATA.categorias, dateStr),
+            this.renderCategoryItems('atividades', 'atividadesList', APP_DATA.atividades, dateStr)
+        ]);
     }
 
-    renderCategoryItems(category, containerId, items, dateStr) {
+    async renderCategoryItems(category, containerId, items, dateStr) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
 
-        items.forEach(item => {
-            const itemData = StorageManager.getItemStatus(dateStr, category, item.id);
+        for (const item of items) {
+            const itemData = await StorageManager.getItemStatus(dateStr, category, item.id);
             const statusConfig = STATUS_CONFIG[itemData.status];
             
             const itemEl = document.createElement('div');
@@ -642,6 +1087,7 @@ class HabitTrackerApp {
                 <div class="item-header">
                     <span class="item-name" tabindex="0">${item.name}</span>
                     <div style="display:flex;gap:0.5rem;align-items:center;">
+                        <button class="btn-aprend-item" title="Inserir nota de Aprendizados" aria-label="Aprendizados">📚</button>
                         <button class="btn-mic" title="Gravar nota por voz" aria-label="Gravar nota por voz">🎙️</button>
                     </div>
                 </div>
@@ -675,17 +1121,44 @@ class HabitTrackerApp {
                 this.forceEditMode(itemEl, noteEditable, category, item.id);
             };
 
+            // Rastrear se houve drag (seleção de texto) entre mousedown e click
+            let _mouseDownX = 0, _mouseDownY = 0, _hasDragged = false;
+            itemEl.addEventListener('mousedown', (ev) => {
+                _mouseDownX = ev.clientX;
+                _mouseDownY = ev.clientY;
+                _hasDragged = false;
+            }, true);
+            itemEl.addEventListener('mousemove', (ev) => {
+                if (Math.abs(ev.clientX - _mouseDownX) > 4 || Math.abs(ev.clientY - _mouseDownY) > 4) {
+                    _hasDragged = true;
+                }
+            }, true);
+
             // Universal click handler for edit mode - works for any click that should trigger editing
             const handleItemClick = (ev) => {
                 const clickedElement = ev.target;
-                
+
                 // Skip if clicked on interactive elements that shouldn't trigger edit mode
                 if (clickedElement.closest('.btn-mic') || 
                     clickedElement.closest('.custom-status') ||
-                    clickedElement.closest('.btn-note-delete')) {
+                    clickedElement.closest('.btn-note-delete') ||
+                    clickedElement.closest('.btn-aprend-item') ||
+                    clickedElement.closest('.item-aprend-dropdown')) {
                     return;
                 }
-                
+
+                // Se o usuário estava arrastando (selecionando texto), não entrar em modo edição
+                if (_hasDragged) {
+                    _hasDragged = false;
+                    return;
+                }
+
+                // Se o clique foi dentro do noteEditable já visível, deixar o browser gerenciar
+                if (clickedElement.closest('.item-note-editable') &&
+                    noteEditable.style.display !== 'none') {
+                    return;
+                }
+
                 // Always enter edit mode, regardless of current state
                 ev.preventDefault();
                 ev.stopPropagation();
@@ -731,7 +1204,31 @@ class HabitTrackerApp {
                     ev.preventDefault();
                     this.exitCurrentEditMode(true); // Use the centralized method
                 }
+                // Ctrl+A dentro do editable: seleciona tudo sem propagar para cima
+                if ((ev.ctrlKey || ev.metaKey) && ev.key === 'a') {
+                    ev.stopPropagation();
+                    // deixa o browser selecionar normalmente
+                }
             });
+
+            // Ctrl+A na nota estática (.item-note): entrar em edição e selecionar tudo
+            const displayedNoteEl = itemEl.querySelector('.item-note');
+            if (displayedNoteEl) {
+                displayedNoteEl.setAttribute('tabindex', '0');
+                displayedNoteEl.addEventListener('keydown', (ev) => {
+                    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'a') {
+                        ev.preventDefault();
+                        handleEditMode();
+                        setTimeout(() => {
+                            const range = document.createRange();
+                            const sel = window.getSelection();
+                            range.selectNodeContents(noteEditable);
+                            sel.removeAllRanges();
+                            sel.addRange(range);
+                        }, 20);
+                    }
+                });
+            }
 
             // Custom status dropdown (button + list) to replace native select for consistent styling
             const statusContainer = document.createElement('div');
@@ -785,10 +1282,51 @@ class HabitTrackerApp {
             const initialStatusKey = itemData.status || 'none';
             setStatusUI(initialStatusKey);
 
-            // open/close logic
-            const closeAllStatusLists = () => {
-                document.querySelectorAll('.custom-status-list').forEach(l => l.classList.add('hidden'));
+            // open/close logic — portal pattern: move list to body to escape overflow:hidden / stacking contexts
+            const detachStatusList = () => {
+                if (statusList.parentElement === document.body) {
+                    statusContainer.appendChild(statusList);
+                }
+                statusList.classList.add('hidden');
+                statusList.classList.remove('open-upward');
+                statusContainer.classList.remove('is-open');
+                statusList.style.position = '';
+                statusList.style.top = '';
+                statusList.style.bottom = '';
+                statusList.style.left = '';
+                statusList.style.right = '';
+                statusList.style.width = '';
             };
+
+            const closeAllStatusLists = () => {
+                document.querySelectorAll('.custom-status-list').forEach(l => {
+                    const parent = l.parentElement;
+                    // se está no body como portal, devolver ao container original
+                    if (parent === document.body) {
+                        const lid = l.dataset.listId;
+                        const container = lid ? document.querySelector(`.custom-status[data-list-id="${lid}"]`) : null;
+                        if (container) {
+                            container.appendChild(l);
+                            container.classList.remove('is-open');
+                        } else {
+                            l.remove(); // fallback seguro
+                        }
+                    }
+                    l.classList.add('hidden');
+                    l.classList.remove('open-upward');
+                    l.style.position = '';
+                    l.style.top = '';
+                    l.style.bottom = '';
+                    l.style.left = '';
+                    l.style.right = '';
+                    l.style.width = '';
+                });
+            };
+
+            // Atribui ID único para poder localizar o statusContainer ao fechar
+            const listId = `sl-${category}-${item.id}`.replace(/[^a-z0-9-_]/gi, '_');
+            statusList.dataset.listId = listId;
+            statusContainer.dataset.listId = listId;
 
             statusBtn.addEventListener('click', (ev) => {
                 ev.stopPropagation();
@@ -796,26 +1334,48 @@ class HabitTrackerApp {
                 closeAllStatusLists();
                 
                 if (isHidden) {
+                    // Mover para body (portal) para escapar overflow:hidden e stacking contexts
+                    document.body.appendChild(statusList);
+                    statusList.style.position = 'fixed';
+                    // Posicionar fora da tela inicialmente para medir sem flicker
+                    statusList.style.top = '-9999px';
+                    statusList.style.left = '-9999px';
                     statusList.classList.remove('hidden');
+                    statusContainer.classList.add('is-open');
                     
-                    // Adjust position if overflowing screen on mobile
-                    setTimeout(() => {
-                        const rect = statusList.getBoundingClientRect();
-                        if (rect.right > window.innerWidth) {
-                            statusList.style.right = 'auto';
-                            statusList.style.left = '0';
+                    // Aguarda o render para usar dimensões reais
+                    requestAnimationFrame(() => {
+                        const btnRect = statusBtn.getBoundingClientRect();
+                        const listRect = statusList.getBoundingClientRect();
+                        const listWidth = Math.max(listRect.width, 220);
+                        const listHeight = listRect.height;
+
+                        const spaceBelow = window.innerHeight - btnRect.bottom;
+                        const spaceAbove = btnRect.top;
+
+                        // Posição vertical
+                        if (spaceBelow < listHeight + 8 && spaceAbove > listHeight) {
+                            // Abre para cima
+                            statusList.classList.add('open-upward');
+                            statusList.style.top = `${btnRect.top - listHeight - 6}px`;
                         } else {
-                            statusList.style.right = '0';
-                            statusList.style.left = 'auto';
+                            // Abre para baixo
+                            statusList.classList.remove('open-upward');
+                            statusList.style.top = `${btnRect.bottom + 6}px`;
                         }
-                    }, 10);
+
+                        // Posição horizontal: alinha pela direita do botão
+                        const leftPos = btnRect.right - listWidth;
+                        statusList.style.left = `${Math.max(4, leftPos)}px`;
+                        statusList.style.right = '';
+                    });
                 } else {
-                    statusList.classList.add('hidden');
+                    detachStatusList();
                 }
             });
 
             // clicking an option
-            statusList.addEventListener('click', (ev) => {
+            statusList.addEventListener('click', async (ev) => {
                 const li = ev.target.closest('.custom-status-option');
                 if (!li) return;
                 const newStatus = li.dataset.value || 'none';
@@ -823,30 +1383,41 @@ class HabitTrackerApp {
 
                 // save
                 const dateStr = this.getDateString();
-                const existing = StorageManager.getItemStatus(dateStr, category, item.id);
-                StorageManager.saveItemStatus(dateStr, category, item.id, newStatus, existing.note || '');
+                const existing = await StorageManager.getItemStatus(dateStr, category, item.id);
+                await StorageManager.saveItemStatus(dateStr, category, item.id, newStatus, existing.note || '');
 
                 // close and re-render
-                statusList.classList.add('hidden');
+                detachStatusList();
                 this.renderTodayView();
             });
 
             // close when clicking outside - use event delegation
             const closeOnOutsideClick = (ev) => {
-                if (!statusContainer.contains(ev.target)) {
-                    statusList.classList.add('hidden');
+                if (!statusContainer.contains(ev.target) && !statusList.contains(ev.target)) {
+                    detachStatusList();
                 }
             };
             
+            // Close on scroll anywhere (dropdown is fixed so it would desync)
+            const closeOnScroll = () => {
+                if (!statusList.classList.contains('hidden')) {
+                    detachStatusList();
+                }
+            };
+
             // Store reference for cleanup
             if (!this._statusClickHandlers) this._statusClickHandlers = [];
             this._statusClickHandlers.push(closeOnOutsideClick);
             document.addEventListener('click', closeOnOutsideClick);
 
+            if (!this._statusScrollHandlers) this._statusScrollHandlers = [];
+            this._statusScrollHandlers.push(closeOnScroll);
+            window.addEventListener('scroll', closeOnScroll, true); // capture: true para pegar scroll de qualquer container
+
             // Close on ESC key
             const closeOnEscape = (ev) => {
                 if (ev.key === 'Escape' && !statusList.classList.contains('hidden')) {
-                    statusList.classList.add('hidden');
+                    detachStatusList();
                 }
             };
             
@@ -870,6 +1441,16 @@ class HabitTrackerApp {
                 }
             });
 
+            // ── Aprendizados picker por item ─────────────────────────────
+            const aprendBtn = itemEl.querySelector('.btn-aprend-item');
+            if (aprendBtn) {
+                aprendBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                    this._toggleItemAprendDropdown(aprendBtn, category, item.id, noteEditable);
+                });
+            }
+
             // Note delete button handler - NOW HANDLED BY GLOBAL DELEGATION
             // const deleteBtn = itemEl.querySelector('.btn-note-delete');
             // if (deleteBtn) {
@@ -888,7 +1469,7 @@ class HabitTrackerApp {
             // }
 
             container.appendChild(itemEl);
-        });
+        }
     }
 
     // Convert URLs in text to clickable links
@@ -921,14 +1502,14 @@ class HabitTrackerApp {
         this.selectedItem = null;
     }
 
-    saveItem() {
+    async saveItem() {
         if (!this.selectedItem) return;
 
         const dateStr = this.getDateString();
         const note = document.getElementById('itemNote').value;
         const status = document.getElementById('statusSelect').value;
         
-        StorageManager.saveItemStatus(
+        await StorageManager.saveItemStatus(
             dateStr,
             this.selectedItem.category,
             this.selectedItem.itemId,
@@ -988,14 +1569,14 @@ class HabitTrackerApp {
         });
     }
 
-    saveInlineNote(itemEl, category, itemId, text) {
+    async saveInlineNote(itemEl, category, itemId, text) {
         // prevent concurrent saves
         if (this._saveLock) return;
         this._saveLock = true;
         setTimeout(() => { this._saveLock = false; }, 400);
 
         const dateStr = this.getDateString();
-        const existing = StorageManager.getItemStatus(dateStr, category, itemId);
+        const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
         const status = existing.status || 'none';
 
         // Normalize whitespace to avoid duplicate-saves producing identical content
@@ -1013,21 +1594,21 @@ class HabitTrackerApp {
             return;
         }
 
-        StorageManager.saveItemStatus(dateStr, category, itemId, status, text);
+        await StorageManager.saveItemStatus(dateStr, category, itemId, status, text);
         // remove editor and re-render the item
         const editor = itemEl.querySelector('.inline-editor');
         if (editor) editor.remove();
         this.renderTodayView();
     }
 
-    renderHistoryForSpecificDate(dateStr) {
+    async renderHistoryForSpecificDate(dateStr) {
         const container = document.getElementById('historyContent');
         const showEmpty = document.getElementById('toggleEmptyItems')?.checked || false;
         
         container.innerHTML = '';
         
         const date = new Date(dateStr + 'T12:00:00');
-        const dayData = StorageManager.getDateData(dateStr);
+        const dayData = await StorageManager.getDateData(dateStr);
         
         if (Object.keys(dayData).length === 0) {
             this.renderEmptyHistoryState(container);
@@ -1042,7 +1623,7 @@ class HabitTrackerApp {
         }
     }
 
-    renderHistoryForCurrentWeek() {
+    async renderHistoryForCurrentWeek() {
         const container = document.getElementById('historyContent');
         const showEmpty = document.getElementById('toggleEmptyItems')?.checked || false;
         
@@ -1067,25 +1648,25 @@ class HabitTrackerApp {
 
         let hasAnyData = false;
         
-        dates.forEach(date => {
+        for (const date of dates) {
             const dateStr = this.getDateString(date);
-            const dayData = StorageManager.getDateData(dateStr);
+            const dayData = await StorageManager.getDateData(dateStr);
             
-            if (Object.keys(dayData).length === 0) return;
+            if (Object.keys(dayData).length === 0) continue;
             
             const dayCard = this.createDayCard(date, dayData, showEmpty);
             if (dayCard) {
                 container.appendChild(dayCard);
                 hasAnyData = true;
             }
-        });
+        }
 
         if (!hasAnyData) {
             this.renderEmptyHistoryState(container);
         }
     }
 
-    renderHistoryForCurrentMonth() {
+    async renderHistoryForCurrentMonth() {
         const container = document.getElementById('historyContent');
         const showEmpty = document.getElementById('toggleEmptyItems')?.checked || false;
         
@@ -1102,25 +1683,25 @@ class HabitTrackerApp {
 
         let hasAnyData = false;
         
-        dates.forEach(date => {
+        for (const date of dates) {
             const dateStr = this.getDateString(date);
-            const dayData = StorageManager.getDateData(dateStr);
+            const dayData = await StorageManager.getDateData(dateStr);
             
-            if (Object.keys(dayData).length === 0) return;
+            if (Object.keys(dayData).length === 0) continue;
             
             const dayCard = this.createDayCard(date, dayData, showEmpty);
             if (dayCard) {
                 container.appendChild(dayCard);
                 hasAnyData = true;
             }
-        });
+        }
 
         if (!hasAnyData) {
             this.renderEmptyHistoryState(container);
         }
     }
 
-    renderHistory(days) {
+    async renderHistory(days) {
         const container = document.getElementById('historyContent');
         const showEmpty = document.getElementById('toggleEmptyItems')?.checked || false;
         
@@ -1137,18 +1718,18 @@ class HabitTrackerApp {
 
         let hasAnyData = false;
         
-        dates.forEach(date => {
+        for (const date of dates) {
             const dateStr = this.getDateString(date);
-            const dayData = StorageManager.getDateData(dateStr);
+            const dayData = await StorageManager.getDateData(dateStr);
             
-            if (Object.keys(dayData).length === 0) return;
+            if (Object.keys(dayData).length === 0) continue;
             
             const dayCard = this.createDayCard(date, dayData, showEmpty);
             if (dayCard) {
                 container.appendChild(dayCard);
                 hasAnyData = true;
             }
-        });
+        }
 
         if (!hasAnyData) {
             this.renderEmptyHistoryState(container);
@@ -1374,7 +1955,7 @@ class HabitTrackerApp {
         `;
     }
 
-    renderReports(period) {
+    async renderReports(period) {
         this.currentReportPeriod = period;
         const container = document.getElementById('reportsContent');
         
@@ -1403,8 +1984,7 @@ class HabitTrackerApp {
                 break;
         }
 
-        const stats = StorageManager.calculateStats(startDate, endDate);
-        console.log('Stats calculated:', stats);
+        const stats = await StorageManager.calculateStats(startDate, endDate);
         
         // Ensure stats have default values
         if (!stats.overall.completionRate) stats.overall.completionRate = 0;
@@ -1512,15 +2092,15 @@ class HabitTrackerApp {
         html += '</div>';
 
         // Drill-down section
-        html += this.renderDrillDown(period, startDate, endDate);
+        html += await this.renderDrillDown(period, startDate, endDate);
 
         container.innerHTML = html;
         
         // Render charts after DOM is ready and Chart.js is loaded
-        setTimeout(() => {
+        setTimeout(async () => {
             if (typeof Chart !== 'undefined') {
-                this.renderPerformanceChart(period, startDate, endDate);
-                this.renderGroupChart(period, startDate, endDate);
+                await this.renderPerformanceChart(period, startDate, endDate);
+                await this.renderGroupChart(period, startDate, endDate);
             } else {
                 console.warn('Chart.js is not loaded. Charts will not be displayed.');
             }
@@ -1528,7 +2108,7 @@ class HabitTrackerApp {
         }, 100);
     }
 
-    renderPerformanceChart(period, startDate, endDate) {
+    async renderPerformanceChart(period, startDate, endDate) {
         // Check if Chart.js is loaded
         if (typeof Chart === 'undefined') {
             console.warn('Chart.js not loaded yet');
@@ -1543,7 +2123,7 @@ class HabitTrackerApp {
             this.performanceChart.destroy();
         }
 
-        const { labels, datasets } = this.getChartData(period, startDate, endDate);
+        const { labels, datasets } = await this.getChartData(period, startDate, endDate);
 
         const ctx = canvas.getContext('2d');
         this.performanceChart = new Chart(ctx, {
@@ -1658,7 +2238,7 @@ class HabitTrackerApp {
         });
     }
 
-    renderGroupChart(period, startDate, endDate) {
+    async renderGroupChart(period, startDate, endDate) {
         // Check if Chart.js is loaded
         if (typeof Chart === 'undefined') {
             console.warn('Chart.js not loaded yet');
@@ -1673,7 +2253,7 @@ class HabitTrackerApp {
             this.groupChart.destroy();
         }
 
-        const { labels, groupData } = this.getGroupChartData(period, startDate, endDate);
+        const { labels, groupData } = await this.getGroupChartData(period, startDate, endDate);
 
         const ctx = canvas.getContext('2d');
         this.groupChart = new Chart(ctx, {
@@ -1787,7 +2367,7 @@ class HabitTrackerApp {
         });
     }
 
-    getChartData(period, startDate, endDate) {
+    async getChartData(period, startDate, endDate) {
         const labels = [];
         const datasets = {
             concluido: [],
@@ -1805,7 +2385,7 @@ class HabitTrackerApp {
                 date.setDate(date.getDate() - i);
                 labels.push(dayNames[date.getDay()]);
                 
-                const dayData = this.calculateDayStatusPercentages(date);
+                const dayData = await this.calculateDayStatusPercentages(date);
                 datasets.concluido.push(dayData.concluido);
                 datasets.emAndamento.push(dayData.emAndamento);
                 datasets.aguardando.push(dayData.aguardando);
@@ -1822,7 +2402,7 @@ class HabitTrackerApp {
                 const weekEnd = new Date(weekStart);
                 weekEnd.setDate(weekEnd.getDate() + 6);
                 
-                const weekData = this.calculatePeriodStatusPercentages(weekStart, weekEnd);
+                const weekData = await this.calculatePeriodStatusPercentages(weekStart, weekEnd);
                 datasets.concluido.push(weekData.concluido);
                 datasets.emAndamento.push(weekData.emAndamento);
                 datasets.aguardando.push(weekData.aguardando);
@@ -1840,7 +2420,7 @@ class HabitTrackerApp {
                 const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
                 const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
                 
-                const monthData = this.calculatePeriodStatusPercentages(monthStart, monthEnd);
+                const monthData = await this.calculatePeriodStatusPercentages(monthStart, monthEnd);
                 datasets.concluido.push(monthData.concluido);
                 datasets.emAndamento.push(monthData.emAndamento);
                 datasets.aguardando.push(monthData.aguardando);
@@ -1849,7 +2429,7 @@ class HabitTrackerApp {
             }
         } else { // all
             // Get all months with data
-            const allData = StorageManager.getAllData();
+            const allData = await StorageManager.getData();
             const monthsWithData = new Map();
             
             for (const dateStr in allData) {
@@ -1866,27 +2446,27 @@ class HabitTrackerApp {
             });
             
             const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-            sortedMonths.forEach(({ year, month }) => {
+            for (const { year, month } of sortedMonths) {
                 labels.push(`${monthNames[month]}/${String(year).slice(-2)}`);
                 
                 const monthStart = new Date(year, month, 1);
                 const monthEnd = new Date(year, month + 1, 0);
                 
-                const monthData = this.calculatePeriodStatusPercentages(monthStart, monthEnd);
+                const monthData = await this.calculatePeriodStatusPercentages(monthStart, monthEnd);
                 datasets.concluido.push(monthData.concluido);
                 datasets.emAndamento.push(monthData.emAndamento);
                 datasets.aguardando.push(monthData.aguardando);
                 datasets.naoFeito.push(monthData.naoFeito);
                 datasets.pulado.push(monthData.pulado);
-            });
+            }
         }
 
         return { labels, datasets };
     }
 
-    calculateDayStatusPercentages(date) {
+    async calculateDayStatusPercentages(date) {
         const dateStr = this.getDateString(date);
-        const dayData = StorageManager.getDateData(dateStr);
+        const dayData = await StorageManager.getDateData(dateStr);
         
         const counts = {
             concluido: 0,
@@ -1931,7 +2511,7 @@ class HabitTrackerApp {
         };
     }
 
-    calculatePeriodStatusPercentages(startDate, endDate) {
+    async calculatePeriodStatusPercentages(startDate, endDate) {
         const counts = {
             concluido: 0,
             emAndamento: 0,
@@ -1944,7 +2524,7 @@ class HabitTrackerApp {
         let currentDate = new Date(startDate);
         while (currentDate <= endDate) {
             const dateStr = this.getDateString(currentDate);
-            const dayData = StorageManager.getDateData(dateStr);
+            const dayData = await StorageManager.getDateData(dateStr);
             
             ['clientes', 'categorias', 'atividades'].forEach(category => {
                 if (dayData[category]) {
@@ -1983,8 +2563,8 @@ class HabitTrackerApp {
         };
     }
 
-    getGroupChartData(period, startDate, endDate) {
-        const { labels } = this.getChartData(period, startDate, endDate);
+    async getGroupChartData(period, startDate, endDate) {
+        const { labels } = await this.getChartData(period, startDate, endDate);
         
         const groupData = {
             clientes: [],
@@ -1996,7 +2576,7 @@ class HabitTrackerApp {
             for (let i = 6; i >= 0; i--) {
                 const date = new Date();
                 date.setDate(date.getDate() - i);
-                const data = this.calculateGroupPercentages(date, date);
+                const data = await this.calculateGroupPercentages(date, date);
                 groupData.clientes.push(data.clientes);
                 groupData.categorias.push(data.categorias);
                 groupData.atividades.push(data.atividades);
@@ -2008,7 +2588,7 @@ class HabitTrackerApp {
                 const weekEnd = new Date(weekStart);
                 weekEnd.setDate(weekEnd.getDate() + 6);
                 
-                const data = this.calculateGroupPercentages(weekStart, weekEnd);
+                const data = await this.calculateGroupPercentages(weekStart, weekEnd);
                 groupData.clientes.push(data.clientes);
                 groupData.categorias.push(data.categorias);
                 groupData.atividades.push(data.atividades);
@@ -2021,13 +2601,13 @@ class HabitTrackerApp {
                 const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
                 const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
                 
-                const data = this.calculateGroupPercentages(monthStart, monthEnd);
+                const data = await this.calculateGroupPercentages(monthStart, monthEnd);
                 groupData.clientes.push(data.clientes);
                 groupData.categorias.push(data.categorias);
                 groupData.atividades.push(data.atividades);
             }
         } else {
-            const allData = StorageManager.getAllData();
+            const allData = await StorageManager.getData();
             const monthsWithData = new Map();
             
             for (const dateStr in allData) {
@@ -2043,21 +2623,21 @@ class HabitTrackerApp {
                 return a.month - b.month;
             });
             
-            sortedMonths.forEach(({ year, month }) => {
+            for (const { year, month } of sortedMonths) {
                 const monthStart = new Date(year, month, 1);
                 const monthEnd = new Date(year, month + 1, 0);
                 
-                const data = this.calculateGroupPercentages(monthStart, monthEnd);
+                const data = await this.calculateGroupPercentages(monthStart, monthEnd);
                 groupData.clientes.push(data.clientes);
                 groupData.categorias.push(data.categorias);
                 groupData.atividades.push(data.atividades);
-            });
+            }
         }
 
         return { labels, groupData };
     }
 
-    calculateGroupPercentages(startDate, endDate) {
+    async calculateGroupPercentages(startDate, endDate) {
         const groups = {
             clientes: { completed: 0, total: 0 },
             categorias: { completed: 0, total: 0 },
@@ -2067,7 +2647,7 @@ class HabitTrackerApp {
         let currentDate = new Date(startDate);
         while (currentDate <= endDate) {
             const dateStr = this.getDateString(currentDate);
-            const dayData = StorageManager.getDateData(dateStr);
+            const dayData = await StorageManager.getDateData(dateStr);
             
             ['clientes', 'categorias', 'atividades'].forEach(category => {
                 if (dayData[category]) {
@@ -2101,7 +2681,7 @@ class HabitTrackerApp {
         };
     }
 
-    renderDrillDown(period, startDate, endDate) {
+    async renderDrillDown(period, startDate, endDate) {
         let html = '<div class="drill-down-section">';
         html += '<h3>Detalhamento por Item</h3>';
         
@@ -2117,7 +2697,8 @@ class HabitTrackerApp {
             'atividades': 'Atividades'
         };
 
-        categories.forEach(category => {
+        for (const category of categories) {
+            const tableHtml = await this.renderDrillTable(category, period, startDate, endDate);
             html += `
                 <div class="accordion-item">
                     <div class="accordion-header" data-category="${category}">
@@ -2125,17 +2706,17 @@ class HabitTrackerApp {
                         <span class="accordion-icon">▼</span>
                     </div>
                     <div class="accordion-content">
-                        ${this.renderDrillTable(category, period, startDate, endDate)}
+                        ${tableHtml}
                     </div>
                 </div>
             `;
-        });
+        }
         
         html += '</div>';
         return html;
     }
 
-    renderDrillTable(category, period, startDate, endDate) {
+    async renderDrillTable(category, period, startDate, endDate) {
         const dates = [];
         let currentDate = new Date(startDate);
         
@@ -2147,9 +2728,9 @@ class HabitTrackerApp {
 
         // Get all items in this category
         const itemsMap = new Map();
-        dates.forEach(date => {
+        for (const date of dates) {
             const dateStr = this.getDateString(date);
-            const dayData = StorageManager.getDateData(dateStr);
+            const dayData = await StorageManager.getDateData(dateStr);
             
             if (dayData[category]) {
                 Object.keys(dayData[category]).forEach(itemId => {
@@ -2158,7 +2739,7 @@ class HabitTrackerApp {
                     }
                 });
             }
-        });
+        }
 
         if (itemsMap.size === 0) {
             return '<div style="padding: 20px; text-align: center; color: rgba(255,255,255,0.5);">Nenhum dado disponível</div>';
@@ -2177,12 +2758,12 @@ class HabitTrackerApp {
         
         html += '</tr></thead><tbody>';
 
-        itemsMap.forEach((itemName, itemId) => {
+        for (const [itemId, itemName] of itemsMap.entries()) {
             html += `<tr><td>${itemName}</td>`;
             
-            displayDates.forEach(date => {
+            for (const date of displayDates) {
                 const dateStr = this.getDateString(date);
-                const dayData = StorageManager.getDateData(dateStr);
+                const dayData = await StorageManager.getDateData(dateStr);
                 const itemData = dayData[category]?.[itemId];
                 
                 if (itemData) {
@@ -2192,10 +2773,10 @@ class HabitTrackerApp {
                 } else {
                     html += '<td>—</td>';
                 }
-            });
+            }
             
             html += '</tr>';
-        });
+        }
 
         html += '</tbody></table></div>';
         return html;
