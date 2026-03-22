@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+  <defs>
+    <linearGradient id="g1" x1="2" y1="2" x2="13" y2="13" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#95d3ee"/><stop offset="1" stop-color="#6bb8d9"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="15" y1="2" x2="26" y2="13" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7ec8e3"/><stop offset="1" stop-color="#5aafd4"/>
+    </linearGradient>
+    <linearGradient id="g3" x1="28" y1="2" x2="39" y2="13" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6ab8d8"/><stop offset="1" stop-color="#4a9cc4"/>
+    </linearGradient>
+    <linearGradient id="g4" x1="2" y1="15" x2="13" y2="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7ec8e3"/><stop offset="1" stop-color="#4a9cc4"/>
+    </linearGradient>
+    <linearGradient id="g5" x1="15" y1="15" x2="26" y2="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#95d3ee"/><stop offset="1" stop-color="#1c567e"/>
+    </linearGradient>
+    <linearGradient id="g6" x1="28" y1="15" x2="39" y2="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5aafd4"/><stop offset="1" stop-color="#013972"/>
+    </linearGradient>
+    <linearGradient id="g7" x1="2" y1="28" x2="13" y2="39" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6ab8d8"/><stop offset="1" stop-color="#1c567e"/>
+    </linearGradient>
+    <linearGradient id="g8" x1="15" y1="28" x2="26" y2="39" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4a9cc4"/><stop offset="1" stop-color="#013972"/>
+    </linearGradient>
+    <linearGradient id="g9" x1="28" y1="28" x2="39" y2="39" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#95d3ee"/><stop offset="1" stop-color="#6bb8d9"/>
+    </linearGradient>
+  </defs>
+  <rect x="2"  y="2"  width="11" height="11" rx="2" fill="url(#g1)"/>
+  <rect x="15" y="2"  width="11" height="11" rx="2" fill="url(#g2)"/>
+  <rect x="28" y="2"  width="11" height="11" rx="2" fill="url(#g3)"/>
+  <rect x="2"  y="15" width="11" height="11" rx="2" fill="url(#g4)"/>
+  <rect x="15" y="15" width="11" height="11" rx="2" fill="url(#g5)"/>
+  <rect x="28" y="15" width="11" height="11" rx="2" fill="url(#g6)"/>
+  <rect x="2"  y="28" width="11" height="11" rx="2" fill="url(#g7)"/>
+  <rect x="15" y="28" width="11" height="11" rx="2" fill="url(#g8)"/>
+  <rect x="28" y="28" width="11" height="11" rx="2" transform="rotate(8 34 34)" fill="url(#g9)"/>
+</svg>
