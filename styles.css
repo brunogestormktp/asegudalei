@@ -66,16 +66,14 @@ body {
     }
 }
 
-/* ── Zoom mobile: 75% via CSS (reforço para Android/Chrome) ── */
+/* ── Zoom mobile: bloqueado via meta viewport (initial-scale=0.75, user-scalable=no) ── */
+/* Prevenir zoom automático do iOS em inputs (font-size < 16px dispara zoom) */
 @media screen and (max-width: 768px) {
-    body {
-        zoom: 0.75;
-    }
-}
-
-/* Prevenir zoom em inputs no mobile */
-@media screen and (max-width: 768px) {
-    input, textarea, select {
+    input, textarea, select,
+    [contenteditable],
+    .item-note-editable,
+    .aprend-line-text,
+    .aprend-editor-title-input {
         font-size: 16px !important;
     }
 }
