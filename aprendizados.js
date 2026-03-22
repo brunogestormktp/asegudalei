@@ -1118,6 +1118,22 @@ const Aprendizados = (() => {
 
     function onHide() { _flushNote(); }
 
-    return { init, onShow, onHide, setLineChecked };
+    // addQuickEntry — API pública: salva um aprendizado rápido vindo do popup de conclusão
+    // Cria uma nova nota no item com o texto como conteúdo
+    function addQuickEntry(category, itemId, itemName, text) {
+        if (!text || !text.trim()) return;
+        const note = {
+            id: uuid(),
+            title: '✓ ' + (itemName || itemId),
+            content: text.trim(),
+            checkedLines: {},
+            attachments: [],
+            createdAt: nowISO(),
+            updatedAt: nowISO(),
+        };
+        saveNote(category, itemId, note);
+    }
+
+    return { init, onShow, onHide, setLineChecked, addQuickEntry };
 })();
 

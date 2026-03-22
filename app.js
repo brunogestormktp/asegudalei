@@ -85,6 +85,70 @@ class HabitTrackerApp {
         });
     }
 
+    // Show popup asking for the learning/aprendizado when an item is marked as concluido
+    showAprendizadoPopup(category, itemId, itemName) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('aprendizadoModal');
+            const input = document.getElementById('aprendizadoInput');
+            const wordCountEl = document.getElementById('aprendizadoWordCount');
+            const btnSave = document.getElementById('btnAprendSave');
+            const btnSkip = document.getElementById('btnAprendSkip');
+            if (!modal) { resolve(null); return; }
+
+            input.value = '';
+            wordCountEl.textContent = '0';
+            wordCountEl.classList.remove('over-limit');
+            input.classList.remove('over-limit');
+            btnSave.disabled = false;
+            modal.classList.add('show');
+
+            // Auto-focus input after animation
+            setTimeout(() => input.focus(), 80);
+
+            const countWords = (str) => str.trim() === '' ? 0 : str.trim().split(/\s+/).length;
+
+            const onInput = () => {
+                const words = countWords(input.value);
+                wordCountEl.textContent = words;
+                const over = words > 10;
+                wordCountEl.classList.toggle('over-limit', over);
+                input.classList.toggle('over-limit', over);
+                btnSave.disabled = over;
+            };
+            input.addEventListener('input', onInput);
+
+            const cleanup = () => {
+                modal.classList.remove('show');
+                input.removeEventListener('input', onInput);
+                btnSave.removeEventListener('click', handleSave);
+                btnSkip.removeEventListener('click', handleSkip);
+                document.removeEventListener('keydown', handleKey);
+            };
+
+            const handleSave = async () => {
+                const text = input.value.trim();
+                if (!text || countWords(text) > 10) return;
+                cleanup();
+                // Save to aprendizados
+                if (typeof Aprendizados !== 'undefined' && text) {
+                    Aprendizados.addQuickEntry(category, itemId, itemName, text);
+                }
+                resolve(text);
+            };
+
+            const handleSkip = () => { cleanup(); resolve(null); };
+
+            const handleKey = (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); handleSave(); }
+                if (e.key === 'Escape') handleSkip();
+            };
+
+            btnSave.addEventListener('click', handleSave);
+            btnSkip.addEventListener('click', handleSkip);
+            document.addEventListener('keydown', handleKey);
+        });
+    }
+
     // Centralized method to exit edit mode for any currently editing item
     exitCurrentEditMode(saveChanges = true) {
         if (this.currentlyEditingItem) {
@@ -1389,6 +1453,11 @@ class HabitTrackerApp {
                 // close and re-render
                 detachStatusList();
                 this.renderTodayView();
+
+                // Se concluído: perguntar aprendizado
+                if (newStatus === 'concluido') {
+                    this.showAprendizadoPopup(category, item.id, item.name || item.id);
+                }
             });
 
             // close when clicking outside - use event delegation
