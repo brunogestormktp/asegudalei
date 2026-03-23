@@ -477,6 +477,10 @@ const StorageManager = {
 
                     console.log('📡 Realtime: mudança recebida de outro dispositivo — mergeando...');
 
+                    // Cancelar qualquer push debounced pendente: evita sobrescrever os dados
+                    // recém-chegados com uma versão antiga que ainda estava na fila
+                    clearTimeout(this._syncTimer);
+
                     // Merge profundo: local + remoto, mais recente vence por updatedAt
                     const localRaw = localStorage.getItem(this.STORAGE_KEY);
                     const local = localRaw ? JSON.parse(localRaw) : {};
@@ -496,7 +500,14 @@ const StorageManager = {
                     // Re-renderizar a view atual do app
                     if (typeof app !== 'undefined' && app.renderCurrentView) {
                         console.log('📡 Realtime: re-renderizando view...');
-                        app.renderCurrentView();
+                        // Sinalizar que o re-render vem do Realtime — app.js usa isso
+                        // para não disparar saves automáticos (exitCurrentEditMode sem save)
+                        this._realtimeSyncing = true;
+                        try {
+                            app.renderCurrentView();
+                        } finally {
+                            this._realtimeSyncing = false;
+                        }
                     }
                 }
             )

@@ -281,7 +281,27 @@ class HabitTrackerApp {
 
             if (saveChanges && noteEditable) {
                 const text = noteEditable.innerText.trim();
-                this.saveInlineNote(element, category, itemId, text);
+                // Se o Realtime está sincronizando, não disparar push imediato —
+                // os dados do outro dispositivo acabaram de chegar e não devem ser sobrescritos
+                if (StorageManager._realtimeSyncing) {
+                    // Salvar apenas no localStorage, sem push ao Supabase
+                    StorageManager.getData().then(allData => {
+                        const dateStr = this.getDateString();
+                        if (!allData[dateStr]) allData[dateStr] = {};
+                        if (!allData[dateStr][category]) allData[dateStr][category] = {};
+                        const existing = allData[dateStr][category][itemId] || {};
+                        allData[dateStr][category][itemId] = {
+                            ...existing,
+                            note: text,
+                            updatedAt: new Date().toISOString()
+                        };
+                        const json = JSON.stringify(allData);
+                        localStorage.setItem(StorageManager.STORAGE_KEY, json);
+                        localStorage.setItem(StorageManager.BACKUP_KEY, json);
+                    });
+                } else {
+                    this.saveInlineNote(element, category, itemId, text);
+                }
             }
 
             // Esconder editable — o blur dispara o save também (lock por item evita duplo)
