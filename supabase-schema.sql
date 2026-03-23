@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS user_data (
 CREATE INDEX IF NOT EXISTS idx_user_data_user_id ON user_data(user_id);
 
 -- Habilitar Row Level Security (RLS)
-ALTER TABLE user_data ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_data ENABLE ROW LEVEL Security;
 
 -- Política para usuários autenticados só poderem acessar seus próprios dados
 CREATE POLICY "Users can only access their own data"
@@ -34,3 +34,12 @@ CREATE TRIGGER update_user_data_updated_at
     BEFORE UPDATE ON user_data
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- ═══════════════════════════════════════════════════════════════
+-- REALTIME: habilitar publicação para sincronização instantânea
+-- Execute este bloco no SQL Editor do painel do Supabase
+-- ═══════════════════════════════════════════════════════════════
+
+-- Adicionar tabela user_data à publicação de Realtime do Supabase
+-- (necessário para que postgres_changes funcione)
+ALTER PUBLICATION supabase_realtime ADD TABLE user_data;

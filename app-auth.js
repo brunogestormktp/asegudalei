@@ -79,6 +79,9 @@ window.addEventListener('load', async function checkAuth() {
                     window._pendingRerender = true;
                 }
             }
+
+            // Iniciar Realtime após sync inicial — sincronização instantânea entre dispositivos
+            StorageManager.startRealtime(currentUser.id);
         }
 
         // Registrar botão de logout AQUI, depois que supabaseClient está pronto
@@ -122,7 +125,10 @@ window.addEventListener('load', async function checkAuth() {
         supabaseClient.auth.onAuthStateChange(async (event, session) => {
             console.log('Auth State Changed:', event);
             if (event === 'SIGNED_OUT' || !session) {
-                // Logout ou sessão expirada
+                // Parar Realtime ao sair
+                if (typeof StorageManager !== 'undefined' && StorageManager.stopRealtime) {
+                    StorageManager.stopRealtime();
+                }
                 window.location.href = 'index.html';
             } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 currentUser = session.user;
@@ -135,6 +141,8 @@ window.addEventListener('load', async function checkAuth() {
                     if (synced && typeof app !== 'undefined' && app.renderCurrentView) {
                         app.renderCurrentView();
                     }
+                    // Garantir Realtime ativo após re-login
+                    StorageManager.startRealtime(currentUser.id);
                 }
             }
         });

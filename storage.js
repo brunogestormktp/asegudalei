@@ -133,6 +133,7 @@ const StorageManager = {
             return;
         }
         this.syncInProgress = true;
+        this._lastPushTime = Date.now(); // marca antes do push para filtrar o próprio evento Realtime
         try {
             const supabase = this.getSupabase();
             const userId = this.getUserId();
@@ -414,5 +415,83 @@ const StorageManager = {
             return false;
         }
         return true;
+    },
+
+    // ─── Realtime: subscribe para sincronização instantânea entre dispositivos ───
+    // Usa postgres_changes para escutar INSERT/UPDATE na linha do usuário.
+    // Quando outro dispositivo salva, este recebe o novo dado via WebSocket
+    // e re-renderiza a view atual sem precisar recarregar a página.
+    _realtimeChannel: null,
+    _lastPushTime: 0, // timestamp do último push feito por ESTE dispositivo
+
+    startRealtime(userId) {
+        const supabase = this.getSupabase();
+        if (!supabase || !userId) return;
+
+        // Evitar canais duplicados
+        if (this._realtimeChannel) {
+            supabase.removeChannel(this._realtimeChannel);
+            this._realtimeChannel = null;
+        }
+
+        console.log('📡 Iniciando Realtime sync...');
+
+        this._realtimeChannel = supabase
+            .channel(`user_data_${userId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'user_data',
+                    filter: `user_id=eq.${userId}`
+                },
+                async (payload) => {
+                    // Ignorar eventos gerados por este próprio dispositivo
+                    // (push feito há menos de 3s = provavelmente foi este dispositivo)
+                    const now = Date.now();
+                    if (now - this._lastPushTime < 3000) {
+                        console.log('📡 Realtime: evento ignorado (próprio push)');
+                        return;
+                    }
+
+                    const remoteData = payload.new?.data;
+                    if (!remoteData || !this.hasRealData(remoteData)) return;
+
+                    console.log('📡 Realtime: mudança recebida de outro dispositivo — mergeando...');
+
+                    // Merge profundo: local + remoto, mais recente vence
+                    const localRaw = localStorage.getItem(this.STORAGE_KEY);
+                    const local = localRaw ? JSON.parse(localRaw) : {};
+                    const merged = this.deepMerge(local, remoteData);
+
+                    // Salvar merged no localStorage sem acionar push (evitar loop)
+                    const mergedJson = JSON.stringify(merged);
+                    localStorage.setItem(this.STORAGE_KEY, mergedJson);
+                    localStorage.setItem(this.BACKUP_KEY, mergedJson);
+
+                    if (merged['_aprendizados']) {
+                        try { localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados'])); } catch(e) {}
+                    }
+
+                    // Re-renderizar a view atual do app
+                    if (typeof app !== 'undefined' && app.renderCurrentView) {
+                        console.log('📡 Realtime: re-renderizando view...');
+                        app.renderCurrentView();
+                    }
+                }
+            )
+            .subscribe((status) => {
+                console.log('📡 Realtime status:', status);
+            });
+    },
+
+    stopRealtime() {
+        const supabase = this.getSupabase();
+        if (supabase && this._realtimeChannel) {
+            supabase.removeChannel(this._realtimeChannel);
+            this._realtimeChannel = null;
+            console.log('📡 Realtime desconectado');
+        }
     }
 };
