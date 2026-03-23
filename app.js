@@ -2865,7 +2865,7 @@ class HabitTrackerApp {
                         displayColors: true,
                         callbacks: {
                             label: function(context) {
-                                return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '%';
+                                return context.dataset.label + ': ' + context.parsed.y;
                             }
                         }
                     }
@@ -2888,7 +2888,6 @@ class HabitTrackerApp {
                     y: {
                         stacked: false,
                         beginAtZero: true,
-                        max: 100,
                         grid: {
                             color: 'rgba(149, 211, 238, 0.07)',
                             drawBorder: false
@@ -2899,8 +2898,9 @@ class HabitTrackerApp {
                                 family: 'Quicksand',
                                 size: 11
                             },
+                            stepSize: 1,
                             callback: function(value) {
-                                return value + '%';
+                                return Number.isInteger(value) ? value : '';
                             }
                         }
                     }
@@ -3170,17 +3170,13 @@ class HabitTrackerApp {
             }
         });
 
-        const validTotal = counts.total - counts.pulado;
-        if (validTotal === 0) {
-            return { concluido: 0, emAndamento: 0, aguardando: 0, naoFeito: 0, pulado: 0 };
-        }
-
+        // Retornar contagens absolutas (não percentagens)
         return {
-            concluido: (counts.concluido / validTotal) * 100,
-            emAndamento: (counts.emAndamento / validTotal) * 100,
-            aguardando: (counts.aguardando / validTotal) * 100,
-            naoFeito: (counts.naoFeito / validTotal) * 100,
-            pulado: 0 // Don't show pulado in percentage
+            concluido: counts.concluido,
+            emAndamento: counts.emAndamento,
+            aguardando: counts.aguardando,
+            naoFeito: counts.naoFeito,
+            pulado: 0
         };
     }
 
@@ -3222,16 +3218,12 @@ class HabitTrackerApp {
             currentDate.setDate(currentDate.getDate() + 1);
         }
 
-        const validTotal = counts.total - counts.pulado;
-        if (validTotal === 0) {
-            return { concluido: 0, emAndamento: 0, aguardando: 0, naoFeito: 0, pulado: 0 };
-        }
-
+        // Retornar contagens absolutas (não percentagens)
         return {
-            concluido: (counts.concluido / validTotal) * 100,
-            emAndamento: (counts.emAndamento / validTotal) * 100,
-            aguardando: (counts.aguardando / validTotal) * 100,
-            naoFeito: (counts.naoFeito / validTotal) * 100,
+            concluido: counts.concluido,
+            emAndamento: counts.emAndamento,
+            aguardando: counts.aguardando,
+            naoFeito: counts.naoFeito,
             pulado: 0
         };
     }
