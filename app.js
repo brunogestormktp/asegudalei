@@ -32,6 +32,38 @@ class HabitTrackerApp {
         // Verifica se houve virada de dia perdida e agenda rollover da meia-noite
         this._checkMissedRollover();
         this._scheduleMidnightRollover();
+        // Garantir flush para Supabase quando o usuário sai ou minimiza a aba
+        this._setupUnloadFlush();
+    }
+
+    // Flush imediato para o Supabase ao fechar/minimizar aba
+    _setupUnloadFlush() {
+        // Quando a aba vai para background ou é fechada
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                // Salvar nota em edição antes de sair
+                if (this.currentlyEditingItem) {
+                    const { element, noteEditable, category, itemId } = this.currentlyEditingItem;
+                    if (noteEditable) {
+                        const text = noteEditable.innerText.trim();
+                        this.saveInlineNote(element, category, itemId, text);
+                    }
+                }
+                StorageManager.flushToSupabase();
+            }
+        });
+
+        // Fallback para fechar janela/navegar para outra URL
+        window.addEventListener('beforeunload', () => {
+            if (this.currentlyEditingItem) {
+                const { element, noteEditable, category, itemId } = this.currentlyEditingItem;
+                if (noteEditable) {
+                    const text = noteEditable.innerText.trim();
+                    this.saveInlineNote(element, category, itemId, text);
+                }
+            }
+            StorageManager.flushToSupabase();
+        });
     }
 
     // ── Rollover de meia-noite ────────────────────────────────────────────
@@ -246,46 +278,39 @@ class HabitTrackerApp {
     exitCurrentEditMode(saveChanges = true) {
         if (this.currentlyEditingItem) {
             const { element, noteEditable, category, itemId } = this.currentlyEditingItem;
-            
-            // Immediately blur and hide to prevent conflicts
+
+            if (saveChanges && noteEditable) {
+                const text = noteEditable.innerText.trim();
+                this.saveInlineNote(element, category, itemId, text);
+            }
+
+            // Esconder editable — o blur dispara o save também (lock por item evita duplo)
             if (noteEditable) {
                 noteEditable.blur();
                 noteEditable.style.display = 'none';
             }
-            
-            if (saveChanges && noteEditable) {
-                // Save the current content
-                const text = noteEditable.innerText.trim();
-                // Use setTimeout 0 to avoid blocking the UI
-                setTimeout(() => {
-                    this.saveInlineNote(element, category, itemId, text);
-                }, 0);
-            }
-            
+
             // Show the regular note display if needed
             const displayedNote = element.querySelector('.item-note');
             if (displayedNote && displayedNote.innerHTML.trim()) {
                 displayedNote.style.display = 'block';
             }
-            
-            // Clear the editing state immediately
+
             this.currentlyEditingItem = null;
         }
     }
 
     // Force immediate switch to edit mode for a specific item
     forceEditMode(element, noteEditable, category, itemId) {
-        // Stop any current editing immediately without delay
+        // Salvar e fechar o item que estava em edição
         if (this.currentlyEditingItem && this.currentlyEditingItem.element !== element) {
             const current = this.currentlyEditingItem;
-            // Save and close current item synchronously
             if (current.noteEditable) {
-                current.noteEditable.blur();
-                current.noteEditable.style.display = 'none';
                 const text = current.noteEditable.innerText.trim();
                 this.saveInlineNote(current.element, current.category, current.itemId, text);
-                
-                // Show note display for previous item
+                current.noteEditable.blur();
+                current.noteEditable.style.display = 'none';
+
                 const prevDisplayed = current.element.querySelector('.item-note');
                 if (prevDisplayed && prevDisplayed.innerHTML.trim()) {
                     prevDisplayed.style.display = 'block';
@@ -1682,16 +1707,11 @@ class HabitTrackerApp {
                 }
             });
 
-            // Save on blur or Ctrl/Cmd+Enter - simplified logic
-            noteEditable.addEventListener('blur', (ev) => {
-                // Only save if this item is still the currently editing one
-                // Use a shorter timeout to be more responsive
-                setTimeout(() => {
-                    if (this.currentlyEditingItem && this.currentlyEditingItem.noteEditable === noteEditable) {
-                        this.saveInlineNote(itemEl, category, item.id, noteEditable.innerText.trim());
-                        this.currentlyEditingItem = null; // Clear the editing state
-                    }
-                }, 50); // Reduced timeout for better responsiveness
+            // Save on blur — captura o texto no momento do blur, sem depender de estado externo
+            noteEditable.addEventListener('blur', () => {
+                const text = noteEditable.innerText.trim();
+                // Salva sempre que perder o foco (o lock por item evita duplicatas)
+                this.saveInlineNote(itemEl, category, item.id, text);
             });
             
             noteEditable.addEventListener('keydown', (ev) => {
@@ -2154,35 +2174,84 @@ class HabitTrackerApp {
     }
 
     async saveInlineNote(itemEl, category, itemId, text) {
-        // prevent concurrent saves
-        if (this._saveLock) return;
-        this._saveLock = true;
-        setTimeout(() => { this._saveLock = false; }, 400);
+        // Lock por item — não bloqueia saves de itens diferentes
+        const lockKey = `${category}::${itemId}`;
+        if (!this._saveLocks) this._saveLocks = new Set();
+        if (this._saveLocks.has(lockKey)) return;
+        this._saveLocks.add(lockKey);
+        // libera o lock após a operação (no finally)
 
-        const dateStr = this.getDateString();
-        const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
-        const status = existing.status || 'none';
+        try {
+            const dateStr = this.getDateString();
+            const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+            const status = existing.status || 'none';
 
-        // Normalize whitespace to avoid duplicate-saves producing identical content
-        const normalize = (s) => (s || '').replace(/\s+/g, ' ').trim();
-        const oldNote = normalize(existing.note || '');
-        const newNote = normalize(text || '');
+            // Comparar preservando quebras de linha (não colapsar \n em espaço)
+            const normalize = (s) => (s || '').trim();
+            const oldNote = normalize(existing.note || '');
+            const newNote = normalize(text || '');
 
-        // If nothing changed, just remove any editor and return (avoid duplicate entries)
-        if (oldNote === newNote) {
-            // remove editor if present
-            const editor = itemEl.querySelector('.inline-editor');
-            if (editor) editor.remove();
-            // also update displayed note (in case formatting changed)
-            this.renderTodayView();
+            // Nada mudou — apenas garantir que a exibição está correta
+            if (oldNote === newNote) {
+                this._updateNoteDisplay(itemEl, category, itemId, existing.note || '');
+                return;
+            }
+
+            // Salvar no localStorage + enfileirar push para Supabase
+            await StorageManager.saveItemStatus(dateStr, category, itemId, status, text);
+            console.log(`💾 Nota salva: [${category}] ${itemId}`);
+
+            // Atualiza só o .item-note deste item (sem re-render total)
+            this._updateNoteDisplay(itemEl, category, itemId, text);
+
+        } catch (err) {
+            console.error('❌ Erro ao salvar nota:', err);
+        } finally {
+            this._saveLocks.delete(lockKey);
+        }
+    }
+
+    // Atualiza visualmente o .item-note de um item sem re-renderizar a página
+    _updateNoteDisplay(itemEl, category, itemId, text) {
+        const noteEditable = itemEl.querySelector('.item-note-editable');
+        let noteDisplay = itemEl.querySelector('.item-note');
+
+        if (!text || !text.trim()) {
+            // Sem nota: esconder display, mostrar editable vazio
+            if (noteDisplay) noteDisplay.style.display = 'none';
+            if (noteEditable) {
+                noteEditable.style.display = 'block';
+            }
             return;
         }
 
-        await StorageManager.saveItemStatus(dateStr, category, itemId, status, text);
-        // remove editor and re-render the item
-        const editor = itemEl.querySelector('.inline-editor');
-        if (editor) editor.remove();
-        this.renderTodayView();
+        // Com nota: atualizar/criar o display e esconder o editable
+        const noteWithLinks = this.linkifyText(text);
+        const newInner = `${noteWithLinks}<button class="btn-note-delete" data-item-id="${itemId}" data-category="${category}" title="Apagar nota">✖</button>`;
+
+        if (noteDisplay) {
+            noteDisplay.innerHTML = newInner;
+            noteDisplay.style.display = '';
+        } else {
+            noteDisplay = document.createElement('div');
+            noteDisplay.className = 'item-note';
+            noteDisplay.dataset.itemId = itemId;
+            noteDisplay.dataset.category = category;
+            noteDisplay.innerHTML = newInner;
+            // Inserir após o noteEditable (ou após o header)
+            if (noteEditable) {
+                noteEditable.insertAdjacentElement('afterend', noteDisplay);
+            } else {
+                const header = itemEl.querySelector('.item-header');
+                header?.insertAdjacentElement('afterend', noteDisplay);
+            }
+        }
+
+        if (noteEditable) noteEditable.style.display = 'none';
+
+        // Atualizar ícone do Google Search
+        const googleBtn = itemEl.querySelector('.btn-google-search');
+        if (googleBtn) googleBtn.style.display = 'inline-flex';
     }
 
     async renderHistoryForSpecificDate(dateStr) {

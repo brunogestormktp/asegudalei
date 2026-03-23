@@ -92,8 +92,8 @@ const StorageManager = {
         return {};
     },
 
-    // Save all data: localStorage imediatamente + Supabase debounced (500ms)
-    async saveData(data) {
+    // Save all data: localStorage imediatamente + Supabase debounced (1500ms)
+    async saveData(data, immediate = false) {
         // Proteção: nunca salvar objeto vazio se já houver dados
         if (!this.hasRealData(data)) {
             const existing = await this.getData();
@@ -103,7 +103,7 @@ const StorageManager = {
             }
         }
 
-        // Salvar no localStorage principal
+        // Salvar no localStorage principal — SEMPRE síncrono e imediato
         const json = JSON.stringify(data);
         localStorage.setItem(this.STORAGE_KEY, json);
 
@@ -113,9 +113,15 @@ const StorageManager = {
         const userId = this.getUserId();
         if (!userId) return;
 
-        // Debounce sync para o Supabase
-        clearTimeout(this._syncTimer);
-        this._syncTimer = setTimeout(() => this._pushToSupabase(data), 500);
+        if (immediate) {
+            // Push imediato (notas, status) — cancela debounce pendente
+            clearTimeout(this._syncTimer);
+            this._pushToSupabase(data);
+        } else {
+            // Debounce para operações em lote (ex: rollover de meia-noite)
+            clearTimeout(this._syncTimer);
+            this._syncTimer = setTimeout(() => this._pushToSupabase(data), 1500);
+        }
     },
 
     // Push data to Supabase (internal)
@@ -176,7 +182,8 @@ const StorageManager = {
             updatedAt: new Date().toISOString()
         };
         
-        await this.saveData(allData);
+        // immediate=true: push para Supabase sem debounce — nota nunca se perde
+        await this.saveData(allData, true);
     },
 
     // Get status for a specific item on a specific date
