@@ -448,12 +448,12 @@ const StorageManager = {
         this.stopPolling();
 
         this._pollUserId = userId;
-        console.log('� Sync ativo (polling 10s)');
+        console.log('🔄 Sync ativo (polling 3s)');
 
         // Executar imediatamente na primeira vez para pegar mudanças recentes
         this._doPoll(userId);
 
-        this._pollTimer = setInterval(() => this._doPoll(userId), 10000);
+        this._pollTimer = setInterval(() => this._doPoll(userId), 3000);
     },
 
     stopPolling() {
