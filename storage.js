@@ -467,13 +467,23 @@ const StorageManager = {
                     // O campo _lastDeviceId é gravado dentro do JSON de dados no push —
                     // o banco não o altera, então chega intacto no payload do Realtime.
                     const remoteDeviceId = payload.new?.data?._lastDeviceId;
+                    console.log('📡 Realtime evento recebido:', {
+                        eventType: payload.eventType,
+                        remoteDeviceId,
+                        myDeviceId: deviceId,
+                        isSelf: remoteDeviceId === deviceId,
+                        hasData: !!payload.new?.data
+                    });
                     if (remoteDeviceId === deviceId) {
                         console.log('📡 Realtime: evento ignorado (próprio push)');
                         return;
                     }
 
                     const remoteData = payload.new?.data;
-                    if (!remoteData || !this.hasRealData(remoteData)) return;
+                    if (!remoteData || !this.hasRealData(remoteData)) {
+                        console.warn('📡 Realtime: dados remotos vazios ou inválidos — ignorado');
+                        return;
+                    }
 
                     console.log('📡 Realtime: mudança recebida de outro dispositivo — mergeando...');
 
@@ -487,6 +497,10 @@ const StorageManager = {
                     // Remover _lastDeviceId dos dados antes de mesclar (não é dado do app)
                     const { _lastDeviceId: _ignored, ...cleanRemote } = remoteData;
                     const merged = this.deepMerge(local, cleanRemote);
+
+                    // Debug: mostrar o que mudou no merge
+                    const today = new Date().toISOString().slice(0, 10);
+                    console.log('📡 Merge resultado (hoje):', JSON.stringify(merged[today] || {}).slice(0, 300));
 
                     // Salvar merged no localStorage SEM acionar push (evitar loop)
                     const mergedJson = JSON.stringify(merged);
