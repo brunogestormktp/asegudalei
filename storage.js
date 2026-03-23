@@ -422,178 +422,92 @@ const StorageManager = {
         return true;
     },
 
-    // ─── Realtime: subscribe para sincronização instantânea entre dispositivos ───
-    _realtimeChannel: null,
-    _realtimeUserId: null,   // userId do canal ativo — evita recriar canal desnecessariamente
+    // ─── Sincronização entre dispositivos via polling ────────────────────
+    // Estratégia: polling a cada 10s — simples, confiável, sem dependência de
+    // WebSocket (Supabase Realtime tem limite de canais no free tier e causa
+    // CHANNEL_ERROR loops que interrompem a sync depois de alguns minutos).
+    _pollTimer: null,
+    _pollUserId: null,
+    _lastKnownRemoteAt: null,
+    _realtimeSyncing: false,  // flag usada por app.js para não disparar push durante re-render
 
     startRealtime(userId) {
-        const supabase = this.getSupabase();
-        if (!supabase || !userId) return;
-
-        // Já está subscrito para este userId com canal ativo — não recriar
-        if (this._realtimeChannel && this._realtimeUserId === userId) {
-            console.log('📡 Realtime: canal já ativo para este usuário.');
-            return;
-        }
-
-        // Remover canal anterior (seja de outro userId ou de reconnect)
-        if (this._realtimeChannel) {
-            try { supabase.removeChannel(this._realtimeChannel); } catch(e) {}
-            this._realtimeChannel = null;
-        }
-
-        this._realtimeUserId = userId;
-        console.log('📡 Iniciando Realtime sync... deviceId:', this._deviceId);
-
-        const deviceId = this._deviceId;
-
-        // Canal com nome fixo por userId — evita consumir múltiplos slots no Supabase free tier
-        // (o anti-loop é feito pelo _deviceId dentro dos dados, não pelo nome do canal)
-        this._realtimeChannel = supabase
-            .channel(`user_data_changes_${userId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'user_data',
-                    filter: `user_id=eq.${userId}`
-                },
-                async (payload) => {
-                    // Anti-loop: ignorar eventos gerados por ESTE dispositivo.
-                    // O campo _lastDeviceId é gravado dentro do JSON de dados no push —
-                    // o banco não o altera, então chega intacto no payload do Realtime.
-                    const remoteDeviceId = payload.new?.data?._lastDeviceId;
-                    console.log('📡 Realtime evento recebido:', {
-                        eventType: payload.eventType,
-                        remoteDeviceId,
-                        myDeviceId: deviceId,
-                        isSelf: remoteDeviceId === deviceId,
-                        hasData: !!payload.new?.data
-                    });
-                    if (remoteDeviceId === deviceId) {
-                        console.log('📡 Realtime: evento ignorado (próprio push)');
-                        return;
-                    }
-
-                    const remoteData = payload.new?.data;
-                    if (!remoteData || !this.hasRealData(remoteData)) {
-                        console.warn('📡 Realtime: dados remotos vazios ou inválidos — ignorado');
-                        return;
-                    }
-
-                    console.log('📡 Realtime: mudança recebida de outro dispositivo — mergeando...');
-
-                    // Cancelar qualquer push debounced pendente: evita sobrescrever os dados
-                    // recém-chegados com uma versão antiga que ainda estava na fila
-                    clearTimeout(this._syncTimer);
-
-                    // Merge profundo: local + remoto, mais recente vence por updatedAt
-                    const localRaw = localStorage.getItem(this.STORAGE_KEY);
-                    const local = localRaw ? JSON.parse(localRaw) : {};
-                    // Remover _lastDeviceId dos dados antes de mesclar (não é dado do app)
-                    const { _lastDeviceId: _ignored, ...cleanRemote } = remoteData;
-                    const merged = this.deepMerge(local, cleanRemote);
-
-                    // Debug: mostrar o que mudou no merge
-                    const today = new Date().toISOString().slice(0, 10);
-                    console.log('📡 Merge resultado (hoje):', JSON.stringify(merged[today] || {}).slice(0, 300));
-
-                    // Salvar merged no localStorage SEM acionar push (evitar loop)
-                    const mergedJson = JSON.stringify(merged);
-                    localStorage.setItem(this.STORAGE_KEY, mergedJson);
-                    localStorage.setItem(this.BACKUP_KEY, mergedJson);
-
-                    if (merged['_aprendizados']) {
-                        try { localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados'])); } catch(e) {}
-                    }
-
-                    // Re-renderizar a view atual do app
-                    if (typeof app !== 'undefined' && app.renderCurrentView) {
-                        console.log('📡 Realtime: re-renderizando view...');
-                        // Sinalizar que o re-render vem do Realtime — app.js usa isso
-                        // para não disparar saves automáticos (exitCurrentEditMode sem save)
-                        this._realtimeSyncing = true;
-                        try {
-                            app.renderCurrentView();
-                        } finally {
-                            this._realtimeSyncing = false;
-                        }
-                    }
-                }
-            )
-            .subscribe((status) => {
-                console.log('📡 Realtime status:', status);
-                // Reconectar em caso de erro de rede
-                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                    console.log('📡 Realtime: reconectando em 3s...');
-                    // Limpar referências ANTES de reagendar — evita loop na idempotency check
-                    this._realtimeChannel = null;
-                    this._realtimeUserId = null;
-                    setTimeout(() => this.startRealtime(userId), 3000);
-                }
-            });
+        // Alias para compatibilidade — delega para startPolling
+        this.startPolling(userId);
     },
 
     stopRealtime() {
-        const supabase = this.getSupabase();
-        if (supabase && this._realtimeChannel) {
-            try { supabase.removeChannel(this._realtimeChannel); } catch(e) {}
-            this._realtimeChannel = null;
-            this._realtimeUserId = null;
-            console.log('📡 Realtime desconectado');
-        }
-        // Parar polling de fallback
+        this.stopPolling();
+    },
+
+    startPolling(userId) {
+        if (!userId) return;
+        // Idempotente: se já está rodando para o mesmo userId, não reiniciar
+        if (this._pollTimer && this._pollUserId === userId) return;
+        // Parar timer anterior se era de outro userId
+        this.stopPolling();
+
+        this._pollUserId = userId;
+        console.log('� Sync ativo (polling 10s)');
+
+        // Executar imediatamente na primeira vez para pegar mudanças recentes
+        this._doPoll(userId);
+
+        this._pollTimer = setInterval(() => this._doPoll(userId), 10000);
+    },
+
+    stopPolling() {
         if (this._pollTimer) {
             clearInterval(this._pollTimer);
             this._pollTimer = null;
         }
+        this._pollUserId = null;
+        console.log('🔄 Sync pausado');
     },
 
-    // ─── Polling de fallback: garante sync mesmo se Realtime WebSocket falhar ───
-    // Roda a cada 30s — busca dados do Supabase e atualiza local se houver mudança
-    _pollTimer: null,
-    _lastKnownRemoteAt: null,
+    async _doPoll(userId) {
+        const supabase = this.getSupabase();
+        if (!supabase || !userId) return;
+        try {
+            const { data: row, error } = await supabase
+                .from('user_data')
+                .select('updated_at, data')
+                .eq('user_id', userId)
+                .single();
 
-    startPolling(userId) {
-        if (this._pollTimer) return; // já rodando
-        console.log('🔄 Polling fallback iniciado (30s)');
-        this._pollTimer = setInterval(async () => {
-            const supabase = this.getSupabase();
-            if (!supabase || !userId) return;
-            try {
-                const { data: row, error } = await supabase
-                    .from('user_data')
-                    .select('updated_at, data')
-                    .eq('user_id', userId)
-                    .single();
-                if (error || !row) return;
+            if (error || !row) return;
 
-                // Se o updated_at mudou desde a última vez que vimos, há dado novo
-                if (row.updated_at === this._lastKnownRemoteAt) return;
-                this._lastKnownRemoteAt = row.updated_at;
+            // Nada mudou desde a última checagem
+            if (row.updated_at === this._lastKnownRemoteAt) return;
+            this._lastKnownRemoteAt = row.updated_at;
 
-                // Verificar se o dado veio de OUTRO dispositivo
-                const remoteDeviceId = row.data?._lastDeviceId;
-                if (remoteDeviceId === this._deviceId) return; // dado nosso, ignorar
+            // Mudança veio deste próprio dispositivo — não re-renderizar
+            const remoteDeviceId = row.data?._lastDeviceId;
+            if (remoteDeviceId === this._deviceId) return;
 
-                console.log('🔄 Polling: mudança detectada — mergeando...');
-                const localRaw = localStorage.getItem(this.STORAGE_KEY);
-                const local = localRaw ? JSON.parse(localRaw) : {};
-                const { _lastDeviceId: _ign, ...cleanRemote } = row.data;
-                const merged = this.deepMerge(local, cleanRemote);
-                const mergedJson = JSON.stringify(merged);
-                localStorage.setItem(this.STORAGE_KEY, mergedJson);
-                localStorage.setItem(this.BACKUP_KEY, mergedJson);
-                if (merged['_aprendizados']) {
-                    try { localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados'])); } catch(e) {}
-                }
-                if (typeof app !== 'undefined' && app.renderCurrentView) {
-                    console.log('🔄 Polling: re-renderizando view...');
-                    this._realtimeSyncing = true;
-                    try { app.renderCurrentView(); } finally { this._realtimeSyncing = false; }
-                }
-            } catch(e) { /* silencioso */ }
-        }, 30000);
+            console.log('🔄 Sync: mudança de outro dispositivo detectada — mergeando...');
+
+            // Cancelar debounce pendente para não sobrescrever dados recém-chegados
+            clearTimeout(this._syncTimer);
+
+            const localRaw = localStorage.getItem(this.STORAGE_KEY);
+            const local = localRaw ? JSON.parse(localRaw) : {};
+            const { _lastDeviceId: _ign, ...cleanRemote } = row.data;
+            const merged = this.deepMerge(local, cleanRemote);
+
+            const mergedJson = JSON.stringify(merged);
+            localStorage.setItem(this.STORAGE_KEY, mergedJson);
+            localStorage.setItem(this.BACKUP_KEY, mergedJson);
+
+            if (merged['_aprendizados']) {
+                try { localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados'])); } catch(e) {}
+            }
+
+            if (typeof app !== 'undefined' && app.renderCurrentView) {
+                console.log('🔄 Sync: re-renderizando view...');
+                this._realtimeSyncing = true;
+                try { app.renderCurrentView(); } finally { this._realtimeSyncing = false; }
+            }
+        } catch(e) { /* rede offline — silencioso, tentará novamente em 10s */ }
     }
 };

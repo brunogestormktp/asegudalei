@@ -131,20 +131,31 @@ window.addEventListener('load', async function checkAuth() {
                     StorageManager.stopRealtime();
                 }
                 window.location.href = 'index.html';
-            } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            } else if (event === 'SIGNED_IN') {
+                // SIGNED_IN pode disparar múltiplas vezes (refresh de token, etc.)
+                // Só processar se o userId mudou (troca de conta) ou polling ainda não iniciou
+                const newUserId = session.user.id;
                 currentUser = session.user;
                 updateUserInfo();
-                
-                // Sincronizar dados ao fazer login
-                if (event === 'SIGNED_IN' && typeof StorageManager !== 'undefined' && StorageManager.forceSyncFromSupabase) {
+
+                const pollingJaAtivo = typeof StorageManager !== 'undefined'
+                    && StorageManager._pollUserId === newUserId
+                    && StorageManager._pollTimer;
+
+                if (!pollingJaAtivo && typeof StorageManager !== 'undefined' && StorageManager.forceSyncFromSupabase) {
                     console.log('Sincronizando dados do Supabase após login...');
                     const synced = await StorageManager.forceSyncFromSupabase();
                     if (synced && typeof app !== 'undefined' && app.renderCurrentView) {
                         app.renderCurrentView();
                     }
-                    // startRealtime é idempotente: só cria canal se não existir ainda para este userId
-                    StorageManager.startRealtime(currentUser.id);
-                    StorageManager.startPolling(currentUser.id);
+                    StorageManager.startPolling(newUserId);
+                }
+            } else if (event === 'TOKEN_REFRESHED') {
+                currentUser = session.user;
+                updateUserInfo();
+                // Garantir que polling continua após refresh de token
+                if (typeof StorageManager !== 'undefined') {
+                    StorageManager.startPolling(session.user.id);
                 }
             }
         });
