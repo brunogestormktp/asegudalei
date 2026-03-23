@@ -141,7 +141,7 @@ window.addEventListener('load', async function checkAuth() {
                     if (synced && typeof app !== 'undefined' && app.renderCurrentView) {
                         app.renderCurrentView();
                     }
-                    // Garantir Realtime ativo após re-login
+                    // startRealtime é idempotente: só cria canal se não existir ainda para este userId
                     StorageManager.startRealtime(currentUser.id);
                 }
             }

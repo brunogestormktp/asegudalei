@@ -127,13 +127,17 @@ const StorageManager = {
     // Push data to Supabase (internal)
     async _pushToSupabase(data) {
         if (this.syncInProgress) return;
-        // Proteção: não enviar dados vazios para o Supabase
         if (!this.hasRealData(data)) {
             console.warn('⛔ _pushToSupabase bloqueado: dados vazios');
             return;
         }
         this.syncInProgress = true;
-        this._lastPushTime = Date.now(); // marca antes do push para filtrar o próprio evento Realtime
+        // Gerar um updated_at único para este push — usado no anti-loop do Realtime
+        const pushTimestamp = new Date().toISOString();
+        if (!this._ownPushIds) this._ownPushIds = new Set();
+        this._ownPushIds.add(pushTimestamp);
+        // Limpar IDs antigos após 10s para não crescer indefinidamente
+        setTimeout(() => this._ownPushIds.delete(pushTimestamp), 10000);
         try {
             const supabase = this.getSupabase();
             const userId = this.getUserId();
@@ -143,7 +147,7 @@ const StorageManager = {
                     .upsert({
                         user_id: userId,
                         data: data,
-                        updated_at: new Date().toISOString()
+                        updated_at: pushTimestamp
                     }, { onConflict: 'user_id' });
 
                 if (error) {
@@ -375,24 +379,18 @@ const StorageManager = {
                     const local = localRaw ? JSON.parse(localRaw) : {};
 
                     // MERGE PROFUNDO: local + remoto, o mais recente por item vence
-                    // Local é a base — dados locais nunca são apagados
                     const merged = this.deepMerge(local, remoteData.data);
 
-                    // Salvar merged (sem acionar o debounce do Supabase para evitar loop)
+                    // Salvar merged APENAS no localStorage — sem push de volta ao Supabase
+                    // (evita loop: forceSyncFromSupabase → push → Realtime event → forceSyncFromSupabase)
                     const mergedJson = JSON.stringify(merged);
                     localStorage.setItem(this.STORAGE_KEY, mergedJson);
                     localStorage.setItem(this.BACKUP_KEY, mergedJson);
 
-                    // Se há dados de aprendizados no merged, atualizar o cache local
                     if (merged['_aprendizados']) {
                         try {
                             localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados']));
                         } catch(e) {}
-                    }
-
-                    // Enviar o merged de volta para o Supabase ficar sincronizado
-                    if (this.hasRealData(merged)) {
-                        setTimeout(() => this._pushToSupabase(merged), 1000);
                     }
 
                     console.log('✅ Data merged from Supabase (deep merge, no data lost)');
@@ -418,22 +416,27 @@ const StorageManager = {
     },
 
     // ─── Realtime: subscribe para sincronização instantânea entre dispositivos ───
-    // Usa postgres_changes para escutar INSERT/UPDATE na linha do usuário.
-    // Quando outro dispositivo salva, este recebe o novo dado via WebSocket
-    // e re-renderiza a view atual sem precisar recarregar a página.
     _realtimeChannel: null,
-    _lastPushTime: 0, // timestamp do último push feito por ESTE dispositivo
+    _realtimeUserId: null,   // userId do canal ativo — evita recriar canal desnecessariamente
+    _ownPushIds: new Set(),  // IDs dos pushes feitos por ESTE dispositivo (anti-loop preciso)
 
     startRealtime(userId) {
         const supabase = this.getSupabase();
         if (!supabase || !userId) return;
 
-        // Evitar canais duplicados
+        // Já está subscrito para este userId — não recriar
+        if (this._realtimeChannel && this._realtimeUserId === userId) {
+            console.log('📡 Realtime: canal já ativo para este usuário.');
+            return;
+        }
+
+        // Remover canal anterior se era de outro userId
         if (this._realtimeChannel) {
             supabase.removeChannel(this._realtimeChannel);
             this._realtimeChannel = null;
         }
 
+        this._realtimeUserId = userId;
         console.log('📡 Iniciando Realtime sync...');
 
         this._realtimeChannel = supabase
@@ -447,11 +450,12 @@ const StorageManager = {
                     filter: `user_id=eq.${userId}`
                 },
                 async (payload) => {
-                    // Ignorar eventos gerados por este próprio dispositivo
-                    // (push feito há menos de 3s = provavelmente foi este dispositivo)
-                    const now = Date.now();
-                    if (now - this._lastPushTime < 3000) {
+                    // Anti-loop preciso: ignorar apenas pushes originados por ESTE dispositivo
+                    // usando o updated_at do registro — se bate com um push nosso, ignorar
+                    const remoteUpdatedAt = payload.new?.updated_at;
+                    if (remoteUpdatedAt && this._ownPushIds.has(remoteUpdatedAt)) {
                         console.log('📡 Realtime: evento ignorado (próprio push)');
+                        this._ownPushIds.delete(remoteUpdatedAt);
                         return;
                     }
 
@@ -460,12 +464,12 @@ const StorageManager = {
 
                     console.log('📡 Realtime: mudança recebida de outro dispositivo — mergeando...');
 
-                    // Merge profundo: local + remoto, mais recente vence
+                    // Merge profundo: local + remoto, mais recente vence por updatedAt
                     const localRaw = localStorage.getItem(this.STORAGE_KEY);
                     const local = localRaw ? JSON.parse(localRaw) : {};
                     const merged = this.deepMerge(local, remoteData);
 
-                    // Salvar merged no localStorage sem acionar push (evitar loop)
+                    // Salvar merged no localStorage SEM acionar push (evitar loop)
                     const mergedJson = JSON.stringify(merged);
                     localStorage.setItem(this.STORAGE_KEY, mergedJson);
                     localStorage.setItem(this.BACKUP_KEY, mergedJson);
@@ -483,6 +487,17 @@ const StorageManager = {
             )
             .subscribe((status) => {
                 console.log('📡 Realtime status:', status);
+                // Reconectar automaticamente em caso de erro (rede oscilou, etc.)
+                if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                    console.log('📡 Realtime: reconectando em 3s...');
+                    setTimeout(() => {
+                        if (this._realtimeUserId === userId) {
+                            this._realtimeChannel = null;
+                            this._realtimeUserId = null;
+                            this.startRealtime(userId);
+                        }
+                    }, 3000);
+                }
             });
     },
 
@@ -491,6 +506,7 @@ const StorageManager = {
         if (supabase && this._realtimeChannel) {
             supabase.removeChannel(this._realtimeChannel);
             this._realtimeChannel = null;
+            this._realtimeUserId = null;
             console.log('📡 Realtime desconectado');
         }
     }
