@@ -82,6 +82,7 @@ window.addEventListener('load', async function checkAuth() {
 
             // Iniciar Realtime após sync inicial — sincronização instantânea entre dispositivos
             StorageManager.startRealtime(currentUser.id);
+            StorageManager.startPolling(currentUser.id);
         }
 
         // Registrar botão de logout AQUI, depois que supabaseClient está pronto
@@ -125,7 +126,7 @@ window.addEventListener('load', async function checkAuth() {
         supabaseClient.auth.onAuthStateChange(async (event, session) => {
             console.log('Auth State Changed:', event);
             if (event === 'SIGNED_OUT' || !session) {
-                // Parar Realtime ao sair
+                // Parar Realtime e polling ao sair
                 if (typeof StorageManager !== 'undefined' && StorageManager.stopRealtime) {
                     StorageManager.stopRealtime();
                 }
@@ -143,6 +144,7 @@ window.addEventListener('load', async function checkAuth() {
                     }
                     // startRealtime é idempotente: só cria canal se não existir ainda para este userId
                     StorageManager.startRealtime(currentUser.id);
+                    StorageManager.startPolling(currentUser.id);
                 }
             }
         });

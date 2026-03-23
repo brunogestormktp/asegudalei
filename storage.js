@@ -6,17 +6,12 @@ const StorageManager = {
     lastSyncTime: null,
     _syncTimer: null,
 
-    // ID único desta sessão/dispositivo — persiste enquanto a aba estiver aberta
-    // Usado para identificar pushes próprios no Realtime (evitar loop)
-    // Fica dentro de data._lastDeviceId, que o banco não modifica (só updated_at é sobrescrito pelo trigger)
-    _deviceId: (() => {
-        let id = sessionStorage.getItem('ht-device-id');
-        if (!id) {
-            id = 'dev-' + Math.random().toString(36).slice(2) + '-' + Date.now();
-            sessionStorage.setItem('ht-device-id', id);
-        }
-        return id;
-    })(),
+    // ID único desta instância em memória — gerado a cada carregamento da página.
+    // NÃO usa sessionStorage/localStorage para evitar que dois dispositivos herdem o mesmo ID.
+    // Combina múltiplas fontes de entropia para garantir unicidade real.
+    _deviceId: 'dev-' + Math.random().toString(36).slice(2, 10)
+                      + Math.random().toString(36).slice(2, 10)
+                      + '-' + Date.now(),
 
     // Get Supabase client
     getSupabase() {
@@ -448,12 +443,14 @@ const StorageManager = {
         }
 
         this._realtimeUserId = userId;
-        console.log('📡 Iniciando Realtime sync...');
+        console.log('📡 Iniciando Realtime sync... deviceId:', this._deviceId);
 
         const deviceId = this._deviceId;
 
+        // Canal com nome fixo por userId — evita consumir múltiplos slots no Supabase free tier
+        // (o anti-loop é feito pelo _deviceId dentro dos dados, não pelo nome do canal)
         this._realtimeChannel = supabase
-            .channel(`user_data_${userId}_${deviceId.slice(-6)}`)
+            .channel(`user_data_changes_${userId}`)
             .on(
                 'postgres_changes',
                 {
@@ -546,5 +543,57 @@ const StorageManager = {
             this._realtimeUserId = null;
             console.log('📡 Realtime desconectado');
         }
+        // Parar polling de fallback
+        if (this._pollTimer) {
+            clearInterval(this._pollTimer);
+            this._pollTimer = null;
+        }
+    },
+
+    // ─── Polling de fallback: garante sync mesmo se Realtime WebSocket falhar ───
+    // Roda a cada 30s — busca dados do Supabase e atualiza local se houver mudança
+    _pollTimer: null,
+    _lastKnownRemoteAt: null,
+
+    startPolling(userId) {
+        if (this._pollTimer) return; // já rodando
+        console.log('🔄 Polling fallback iniciado (30s)');
+        this._pollTimer = setInterval(async () => {
+            const supabase = this.getSupabase();
+            if (!supabase || !userId) return;
+            try {
+                const { data: row, error } = await supabase
+                    .from('user_data')
+                    .select('updated_at, data')
+                    .eq('user_id', userId)
+                    .single();
+                if (error || !row) return;
+
+                // Se o updated_at mudou desde a última vez que vimos, há dado novo
+                if (row.updated_at === this._lastKnownRemoteAt) return;
+                this._lastKnownRemoteAt = row.updated_at;
+
+                // Verificar se o dado veio de OUTRO dispositivo
+                const remoteDeviceId = row.data?._lastDeviceId;
+                if (remoteDeviceId === this._deviceId) return; // dado nosso, ignorar
+
+                console.log('🔄 Polling: mudança detectada — mergeando...');
+                const localRaw = localStorage.getItem(this.STORAGE_KEY);
+                const local = localRaw ? JSON.parse(localRaw) : {};
+                const { _lastDeviceId: _ign, ...cleanRemote } = row.data;
+                const merged = this.deepMerge(local, cleanRemote);
+                const mergedJson = JSON.stringify(merged);
+                localStorage.setItem(this.STORAGE_KEY, mergedJson);
+                localStorage.setItem(this.BACKUP_KEY, mergedJson);
+                if (merged['_aprendizados']) {
+                    try { localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados'])); } catch(e) {}
+                }
+                if (typeof app !== 'undefined' && app.renderCurrentView) {
+                    console.log('🔄 Polling: re-renderizando view...');
+                    this._realtimeSyncing = true;
+                    try { app.renderCurrentView(); } finally { this._realtimeSyncing = false; }
+                }
+            } catch(e) { /* silencioso */ }
+        }, 30000);
     }
 };
