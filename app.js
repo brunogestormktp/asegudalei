@@ -333,6 +333,65 @@ class HabitTrackerApp {
         });
     }
 
+    // Show popup asking what's missing when an item is marked as parcialmente
+    showParcialmentePopup(category, itemId) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('parcialmenteModal');
+            const input = document.getElementById('parcialmenteInput');
+            const wordCountEl = document.getElementById('parcialmenteWordCount');
+            const btnSave = document.getElementById('btnParcialmenteSave');
+            const btnSkip = document.getElementById('btnParcialmenteSkip');
+            if (!modal) { resolve(null); return; }
+
+            input.value = '';
+            wordCountEl.textContent = '0';
+            btnSave.disabled = true;
+            modal.classList.add('show');
+
+            setTimeout(() => input.focus(), 80);
+
+            const onInput = () => {
+                const chars = input.value.length;
+                wordCountEl.textContent = chars;
+                btnSave.disabled = chars < 5;
+            };
+            input.addEventListener('input', onInput);
+
+            const cleanup = () => {
+                modal.classList.remove('show');
+                input.removeEventListener('input', onInput);
+                btnSave.removeEventListener('click', handleSave);
+                btnSkip.removeEventListener('click', handleSkip);
+                document.removeEventListener('keydown', handleKey);
+            };
+
+            const handleSave = async () => {
+                const text = input.value.trim();
+                if (!text || text.length < 5) return;
+                cleanup();
+                // Append ⏳ pending note to today's item record
+                const dateStr = this.getDateString();
+                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                const prevNote = existing.note ? existing.note.trim() : '';
+                const parcNote = `⏳ ${text}`;
+                const newNote = prevNote ? `${prevNote}\n${parcNote}` : parcNote;
+                await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'parcialmente', newNote);
+                resolve(text);
+            };
+
+            const handleSkip = () => { cleanup(); resolve(null); };
+
+            const handleKey = (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); handleSave(); }
+                if (e.key === 'Escape') handleSkip();
+            };
+
+            btnSave.addEventListener('click', handleSave);
+            btnSkip.addEventListener('click', handleSkip);
+            document.addEventListener('keydown', handleKey);
+        });
+    }
+
     // Centralized method to exit edit mode for any currently editing item
     exitCurrentEditMode(saveChanges = true) {
         if (this.currentlyEditingItem) {
@@ -1485,6 +1544,10 @@ class HabitTrackerApp {
                     this.showBloqueadoPopup(category, itemId)
                         .then(() => this.renderTodayView());
                 }
+                if (opt.key === 'parcialmente' && dateStr === todayStr) {
+                    this.showParcialmentePopup(category, itemId)
+                        .then(() => this.renderTodayView());
+                }
                 if (dateStr === todayStr) {
                     this.renderTodayView();
                 }
@@ -2014,6 +2077,12 @@ class HabitTrackerApp {
                     this.showBloqueadoPopup(category, item.id)
                         .then(() => this.renderTodayView());
                 }
+
+                // Se parcialmente hoje: perguntar o que falta
+                if (newStatus === 'parcialmente') {
+                    this.showParcialmentePopup(category, item.id)
+                        .then(() => this.renderTodayView());
+                }
             });
 
             // close when clicking outside - use event delegation
@@ -2174,7 +2243,7 @@ class HabitTrackerApp {
                    .replace(/\n/g, '<br>');
     }
 
-    // Build note HTML, rendering 🧠 and 🚫 lines as colored status tags
+    // Build note HTML, rendering 🧠, 🚫 and ⏳ lines as colored status tags
     _buildNoteHtml(text) {
         if (!text || !text.trim()) return '';
         const lines = text.split('\n');
@@ -2187,6 +2256,9 @@ class HabitTrackerApp {
             } else if (trimmed.startsWith('🚫')) {
                 const content = trimmed.slice(2).trim();
                 parts.push(`<span class="status-note-tag status-note-tag--bloqueado">🚫 ${this._escapeHtml(content)}</span>`);
+            } else if (trimmed.startsWith('⏳')) {
+                const content = trimmed.slice(2).trim();
+                parts.push(`<span class="status-note-tag status-note-tag--parcialmente">⏳ ${this._escapeHtml(content)}</span>`);
             } else if (trimmed !== '') {
                 const urlRegex = /(https?:\/\/[^\s]+)/g;
                 const linked = line.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" class="note-link">$1</a>');

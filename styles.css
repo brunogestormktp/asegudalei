@@ -1547,6 +1547,12 @@ mark.tsf-highlight {
     border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
+.status-note-tag--parcialmente {
+    background: rgba(249, 115, 22, 0.15);
+    color: #fb923c;
+    border: 1px solid rgba(249, 115, 22, 0.35);
+}
+
 /* Bloqueado popup accent */
 .bloqueado-popup-content .aprend-popup-icon {
     font-size: 2.5rem;
@@ -1559,6 +1565,20 @@ mark.tsf-highlight {
 .bloqueado-btn-save:not(:disabled):hover {
     background: rgba(239, 68, 68, 0.35) !important;
     border-color: #ef4444 !important;
+}
+
+/* Parcialmente popup accent */
+.parcialmente-popup-content .aprend-popup-icon {
+    font-size: 2.5rem;
+}
+.parcialmente-btn-save {
+    background: rgba(249, 115, 22, 0.2) !important;
+    border-color: rgba(249, 115, 22, 0.5) !important;
+    color: #fb923c !important;
+}
+.parcialmente-btn-save:not(:disabled):hover {
+    background: rgba(249, 115, 22, 0.35) !important;
+    border-color: #f97316 !important;
 }
 
 /* Modal */
