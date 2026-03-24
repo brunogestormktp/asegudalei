@@ -1523,6 +1523,44 @@ mark.tsf-highlight {
     display: none;
 }
 
+/* ── Status Note Tags (🧠 aprendizado / 🚫 bloqueado) ─────────────────── */
+.status-note-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.6;
+    margin: 3px 0;
+    letter-spacing: 0.01em;
+}
+
+.status-note-tag--concluido {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.status-note-tag--bloqueado {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+/* Bloqueado popup accent */
+.bloqueado-popup-content .aprend-popup-icon {
+    font-size: 2.5rem;
+}
+.bloqueado-btn-save {
+    background: rgba(239, 68, 68, 0.2) !important;
+    border-color: rgba(239, 68, 68, 0.5) !important;
+    color: #f87171 !important;
+}
+.bloqueado-btn-save:not(:disabled):hover {
+    background: rgba(239, 68, 68, 0.35) !important;
+    border-color: #ef4444 !important;
+}
+
 /* Modal */
 .modal {
     position: fixed;

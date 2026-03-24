@@ -274,6 +274,65 @@ class HabitTrackerApp {
         });
     }
 
+    // Show popup asking for the reason when an item is marked as bloqueado
+    showBloqueadoPopup(category, itemId) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('bloqueadoModal');
+            const input = document.getElementById('bloqueadoInput');
+            const wordCountEl = document.getElementById('bloqueadoWordCount');
+            const btnSave = document.getElementById('btnBloqueadoSave');
+            const btnSkip = document.getElementById('btnBloqueadoSkip');
+            if (!modal) { resolve(null); return; }
+
+            input.value = '';
+            wordCountEl.textContent = '0';
+            btnSave.disabled = true;
+            modal.classList.add('show');
+
+            setTimeout(() => input.focus(), 80);
+
+            const onInput = () => {
+                const chars = input.value.length;
+                wordCountEl.textContent = chars;
+                btnSave.disabled = chars < 5;
+            };
+            input.addEventListener('input', onInput);
+
+            const cleanup = () => {
+                modal.classList.remove('show');
+                input.removeEventListener('input', onInput);
+                btnSave.removeEventListener('click', handleSave);
+                btnSkip.removeEventListener('click', handleSkip);
+                document.removeEventListener('keydown', handleKey);
+            };
+
+            const handleSave = async () => {
+                const text = input.value.trim();
+                if (!text || text.length < 5) return;
+                cleanup();
+                // Append 🚫 reason to the note
+                const dateStr = this.getDateString();
+                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                const prevNote = existing.note ? existing.note.trim() : '';
+                const bloqNote = `🚫 ${text}`;
+                const newNote = prevNote ? `${prevNote}\n${bloqNote}` : bloqNote;
+                await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'bloqueado', newNote);
+                resolve(text);
+            };
+
+            const handleSkip = () => { cleanup(); resolve(null); };
+
+            const handleKey = (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); handleSave(); }
+                if (e.key === 'Escape') handleSkip();
+            };
+
+            btnSave.addEventListener('click', handleSave);
+            btnSkip.addEventListener('click', handleSkip);
+            document.addEventListener('keydown', handleKey);
+        });
+    }
+
     // Centralized method to exit edit mode for any currently editing item
     exitCurrentEditMode(saveChanges = true) {
         if (this.currentlyEditingItem) {
@@ -1419,7 +1478,12 @@ class HabitTrackerApp {
 
                 const todayStr = this.getDateString(new Date());
                 if (opt.key === 'concluido' && dateStr === todayStr) {
-                    this.showAprendizadoPopup(category, itemId, item?.name || itemId);
+                    this.showAprendizadoPopup(category, itemId, item?.name || itemId)
+                        .then(() => this.renderTodayView());
+                }
+                if (opt.key === 'bloqueado' && dateStr === todayStr) {
+                    this.showBloqueadoPopup(category, itemId)
+                        .then(() => this.renderTodayView());
                 }
                 if (dateStr === todayStr) {
                     this.renderTodayView();
@@ -1607,7 +1671,7 @@ class HabitTrackerApp {
             
             let noteHtml = '';
             if (itemData.note && itemData.note.trim()) {
-                const noteWithLinks = this.linkifyText(itemData.note);
+                const noteWithLinks = this._buildNoteHtml(itemData.note);
                 noteHtml = `<div class="item-note" data-item-id="${item.id}" data-category="${category}">${noteWithLinks}<button class="btn-note-delete" data-item-id="${item.id}" data-category="${category}" title="Apagar nota">✖</button></div>`;
             }
 
@@ -1941,7 +2005,14 @@ class HabitTrackerApp {
 
                 // Se concluído hoje: perguntar aprendizado
                 if (newStatus === 'concluido') {
-                    this.showAprendizadoPopup(category, item.id, item.name || item.id);
+                    this.showAprendizadoPopup(category, item.id, item.name || item.id)
+                        .then(() => this.renderTodayView());
+                }
+
+                // Se bloqueado hoje: perguntar razão
+                if (newStatus === 'bloqueado') {
+                    this.showBloqueadoPopup(category, item.id)
+                        .then(() => this.renderTodayView());
                 }
             });
 
@@ -2103,6 +2174,39 @@ class HabitTrackerApp {
                    .replace(/\n/g, '<br>');
     }
 
+    // Build note HTML, rendering 🧠 and 🚫 lines as colored status tags
+    _buildNoteHtml(text) {
+        if (!text || !text.trim()) return '';
+        const lines = text.split('\n');
+        const parts = [];
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('🧠')) {
+                const content = trimmed.slice(2).trim();
+                parts.push(`<span class="status-note-tag status-note-tag--concluido">🧠 ${this._escapeHtml(content)}</span>`);
+            } else if (trimmed.startsWith('🚫')) {
+                const content = trimmed.slice(2).trim();
+                parts.push(`<span class="status-note-tag status-note-tag--bloqueado">🚫 ${this._escapeHtml(content)}</span>`);
+            } else if (trimmed !== '') {
+                const urlRegex = /(https?:\/\/[^\s]+)/g;
+                const linked = line.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" class="note-link">$1</a>');
+                parts.push(linked);
+            }
+        }
+        // Join: tags get their own line via block display, plain lines join with <br>
+        return parts.map((part, i) => {
+            const next = parts[i + 1];
+            const isTag = part.startsWith('<span class="status-note-tag');
+            const nextIsTag = next && next.startsWith('<span class="status-note-tag');
+            if (isTag || nextIsTag) return part;
+            return part + (next !== undefined ? '<br>' : '');
+        }).join('');
+    }
+
+    _escapeHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
     openModal(category, itemId, itemName, currentData) {
         this.selectedItem = { category, itemId };
         
@@ -2246,7 +2350,7 @@ class HabitTrackerApp {
         }
 
         // Com nota: atualizar/criar o display e esconder o editable
-        const noteWithLinks = this.linkifyText(text);
+        const noteWithLinks = this._buildNoteHtml(text);
         const newInner = `${noteWithLinks}<button class="btn-note-delete" data-item-id="${itemId}" data-category="${category}" title="Apagar nota">✖</button>`;
 
         if (noteDisplay) {
