@@ -2247,32 +2247,30 @@ class HabitTrackerApp {
     _buildNoteHtml(text) {
         if (!text || !text.trim()) return '';
         const lines = text.split('\n');
-        const parts = [];
+        const tagParts = [];   // tags flutuantes (🧠 🚫 ⏳) — vão primeiro no HTML
+        const textParts = [];  // linhas de texto normal
         for (const line of lines) {
             const trimmed = line.trim();
             if (trimmed.startsWith('🧠')) {
                 const content = trimmed.slice(2).trim();
-                parts.push(`<span class="status-note-tag status-note-tag--concluido">🧠 ${this._escapeHtml(content)}</span>`);
+                tagParts.push(`<span class="status-note-tag status-note-tag--concluido">🧠 ${this._escapeHtml(content)}</span>`);
             } else if (trimmed.startsWith('🚫')) {
                 const content = trimmed.slice(2).trim();
-                parts.push(`<span class="status-note-tag status-note-tag--bloqueado">🚫 ${this._escapeHtml(content)}</span>`);
+                tagParts.push(`<span class="status-note-tag status-note-tag--bloqueado">🚫 ${this._escapeHtml(content)}</span>`);
             } else if (trimmed.startsWith('⏳')) {
                 const content = trimmed.slice(2).trim();
-                parts.push(`<span class="status-note-tag status-note-tag--parcialmente">⏳ ${this._escapeHtml(content)}</span>`);
+                tagParts.push(`<span class="status-note-tag status-note-tag--parcialmente">⏳ ${this._escapeHtml(content)}</span>`);
             } else if (trimmed !== '') {
                 const urlRegex = /(https?:\/\/[^\s]+)/g;
                 const linked = line.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" class="note-link">$1</a>');
-                parts.push(linked);
+                textParts.push(linked);
             }
         }
-        // Join: tags get their own line via block display, plain lines join with <br>
-        return parts.map((part, i) => {
-            const next = parts[i + 1];
-            const isTag = part.startsWith('<span class="status-note-tag');
-            const nextIsTag = next && next.startsWith('<span class="status-note-tag');
-            if (isTag || nextIsTag) return part;
-            return part + (next !== undefined ? '<br>' : '');
-        }).join('');
+        // Tags vêm primeiro no HTML para que o float:right funcione corretamente,
+        // depois o texto normal com quebras de linha
+        const tagsHtml = tagParts.join('');
+        const textHtml = textParts.join('<br>');
+        return tagsHtml + textHtml;
     }
 
     _escapeHtml(str) {

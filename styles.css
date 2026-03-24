@@ -1444,6 +1444,7 @@ mark.tsf-highlight {
     user-select: text;
     -webkit-user-select: text;
     cursor: text;
+    overflow: hidden; /* clearfix para float das tags */
 }
 
 .btn-note-delete {
@@ -1523,7 +1524,7 @@ mark.tsf-highlight {
     display: none;
 }
 
-/* ── Status Note Tags (🧠 aprendizado / 🚫 bloqueado) ─────────────────── */
+/* ── Status Note Tags (🧠 aprendizado / 🚫 bloqueado / ⏳ parcialmente) ── */
 .status-note-tag {
     display: inline-block;
     padding: 3px 10px;
@@ -1533,6 +1534,20 @@ mark.tsf-highlight {
     line-height: 1.6;
     margin: 3px 0;
     letter-spacing: 0.01em;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Desktop: tags flutuam para a direita dentro da nota */
+@media (min-width: 768px) {
+    .status-note-tag {
+        float: right;
+        clear: right;
+        margin: 2px 0 2px 12px;
+        max-width: 55%;
+    }
 }
 
 .status-note-tag--concluido {
