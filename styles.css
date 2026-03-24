@@ -1490,6 +1490,8 @@ mark.tsf-highlight {
     min-height: 20px;
     outline: none;
     white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
     transition: all 0.3s ease;
     user-select: text;
     -webkit-user-select: text;

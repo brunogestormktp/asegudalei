@@ -45,7 +45,7 @@ class HabitTrackerApp {
                 if (this.currentlyEditingItem) {
                     const { element, noteEditable, category, itemId } = this.currentlyEditingItem;
                     if (noteEditable) {
-                        const text = noteEditable.innerText.trim();
+                        const text = this._getEditableText(noteEditable);
                         this.saveInlineNote(element, category, itemId, text);
                     }
                 }
@@ -58,7 +58,7 @@ class HabitTrackerApp {
             if (this.currentlyEditingItem) {
                 const { element, noteEditable, category, itemId } = this.currentlyEditingItem;
                 if (noteEditable) {
-                    const text = noteEditable.innerText.trim();
+                    const text = this._getEditableText(noteEditable);
                     this.saveInlineNote(element, category, itemId, text);
                 }
             }
@@ -398,7 +398,7 @@ class HabitTrackerApp {
             const { element, noteEditable, category, itemId } = this.currentlyEditingItem;
 
             if (saveChanges && noteEditable) {
-                const text = noteEditable.innerText.trim();
+                const text = this._getEditableText(noteEditable);
                 // Se o Realtime está sincronizando, não disparar push imediato —
                 // os dados do outro dispositivo acabaram de chegar e não devem ser sobrescritos
                 if (StorageManager._realtimeSyncing) {
@@ -444,7 +444,7 @@ class HabitTrackerApp {
         if (this.currentlyEditingItem && this.currentlyEditingItem.element !== element) {
             const current = this.currentlyEditingItem;
             if (current.noteEditable) {
-                const text = current.noteEditable.innerText.trim();
+                const text = this._getEditableText(current.noteEditable);
                 this.saveInlineNote(current.element, current.category, current.itemId, text);
                 current.noteEditable.blur();
                 current.noteEditable.style.display = 'none';
@@ -1856,7 +1856,7 @@ class HabitTrackerApp {
 
             // Save on blur — captura o texto no momento do blur, sem depender de estado externo
             noteEditable.addEventListener('blur', () => {
-                const text = noteEditable.innerText.trim();
+                const text = this._getEditableText(noteEditable);
                 // Salva sempre que perder o foco (o lock por item evita duplicatas)
                 this.saveInlineNote(itemEl, category, item.id, text);
             });
@@ -2277,6 +2277,34 @@ class HabitTrackerApp {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    // Extrai texto de um contentEditable preservando quebras de linha corretamente
+    // innerText pode colapsar \n em alguns browsers/situações; esta função é robusta
+    _getEditableText(el) {
+        let text = '';
+        const walk = (node) => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                text += node.nodeValue;
+            } else if (node.nodeType === Node.ELEMENT_NODE) {
+                const tag = node.nodeName.toUpperCase();
+                if (tag === 'BR') {
+                    text += '\n';
+                } else if (tag === 'DIV' || tag === 'P') {
+                    // Bloco = nova linha, mas não adicionar \n no início
+                    if (text.length > 0 && !text.endsWith('\n')) {
+                        text += '\n';
+                    }
+                    node.childNodes.forEach(walk);
+                    // Não adiciona \n após o bloco — o próximo bloco adicionará
+                } else {
+                    node.childNodes.forEach(walk);
+                }
+            }
+        };
+        el.childNodes.forEach(walk);
+        // Normalizar: remover \n extra no final
+        return text.replace(/\n+$/, '');
+    }
+
     openModal(category, itemId, itemName, currentData) {
         this.selectedItem = { category, itemId };
         
@@ -2422,6 +2450,11 @@ class HabitTrackerApp {
         // Com nota: atualizar/criar o display e esconder o editable
         const noteWithLinks = this._buildNoteHtml(text);
         const newInner = `${noteWithLinks}<button class="btn-note-delete" data-item-id="${itemId}" data-category="${category}" title="Apagar nota">✖</button>`;
+
+        // Sincronizar o editable com o texto salvo (preserva \n para próxima edição)
+        if (noteEditable && noteEditable.style.display === 'none') {
+            noteEditable.innerText = text;
+        }
 
         if (noteDisplay) {
             noteDisplay.innerHTML = newInner;
