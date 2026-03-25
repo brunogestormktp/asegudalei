@@ -668,6 +668,10 @@ body {
     border-radius: 0;
     z-index: 90;
 }
+/* Compensa o espaço do date-selector fixed (sai do fluxo) no iOS PWA */
+.ios-pwa .date-selector + .quick-nav {
+    margin-top: var(--date-sel-h, 54px);
+}
 
 .date-selector h2 {
     font-family: 'Quicksand', sans-serif;

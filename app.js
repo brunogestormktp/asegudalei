@@ -158,15 +158,11 @@ class HabitTrackerApp {
             const h = headerEl.getBoundingClientRect().height;
             document.documentElement.style.setProperty('--header-h', Math.round(h) + 'px');
 
-            // No iOS PWA, o date-selector usa position:fixed, então precisamos
-            // compensar com padding-top no todayView (só a altura do date-selector,
-            // pois o header já está fora do todayView e empurra naturalmente)
+            // No iOS PWA, o date-selector usa position:fixed (sai do fluxo),
+            // setar --date-sel-h para que o CSS compense com margin-top no irmão seguinte
             if (document.documentElement.classList.contains('ios-pwa') && dateSelEl) {
                 const dsH = dateSelEl.getBoundingClientRect().height;
-                const todayView = document.getElementById('todayView');
-                if (todayView) {
-                    todayView.style.paddingTop = Math.round(dsH) + 'px';
-                }
+                document.documentElement.style.setProperty('--date-sel-h', Math.round(dsH) + 'px');
             }
         }
     }
