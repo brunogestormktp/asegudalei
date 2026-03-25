@@ -657,6 +657,18 @@ body {
     margin-right: -1rem;
 }
 
+/* ── iOS PWA: sticky não funciona corretamente, usar fixed ── */
+.ios-pwa .date-selector {
+    position: fixed;
+    top: var(--header-h, 73px);
+    left: 0;
+    right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    border-radius: 0;
+    z-index: 90;
+}
+
 .date-selector h2 {
     font-family: 'Quicksand', sans-serif;
     font-size: 1.125rem;

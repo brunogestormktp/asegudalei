@@ -19,11 +19,23 @@ class HabitTrackerApp {
     }
 
     init() {
+        // Detecta iOS PWA (adicionado à tela inicial) e marca o <html> com classe
+        const isIosPwa = (
+            ('standalone' in window.navigator && window.navigator.standalone === true) ||
+            window.matchMedia('(display-mode: standalone)').matches
+        ) && /iphone|ipad|ipod/i.test(navigator.userAgent);
+        if (isIosPwa) {
+            document.documentElement.classList.add('ios-pwa');
+        }
+
         this.setupEventListeners();
         this.initSpeech();
         this._syncHeaderHeight();
         window.addEventListener('resize', () => this._syncHeaderHeight());
         this.renderTodayView();
+        // Re-sincroniza após render para garantir cálculo correto no iOS PWA
+        // (date-selector precisa já estar no DOM com altura real)
+        requestAnimationFrame(() => this._syncHeaderHeight());
         // Se havia um re-render pendente (sync do Supabase chegou antes do app inicializar)
         if (window._pendingRerender) {
             window._pendingRerender = false;
@@ -138,12 +150,24 @@ class HabitTrackerApp {
     }
 
     // Mede a altura real do .header e seta --header-h no :root
-    // Garante que o date-selector sticky nunca fique sob o header
+    // Garante que o date-selector sticky/fixed nunca fique sob o header
     _syncHeaderHeight() {
         const headerEl = document.querySelector('.header');
+        const dateSelEl = document.querySelector('.date-selector');
         if (headerEl) {
             const h = headerEl.getBoundingClientRect().height;
             document.documentElement.style.setProperty('--header-h', Math.round(h) + 'px');
+
+            // No iOS PWA, o date-selector usa position:fixed, então precisamos
+            // compensar o padding-top do todayView para que o conteúdo não fique
+            // escondido atrás do header + date-selector
+            if (document.documentElement.classList.contains('ios-pwa') && dateSelEl) {
+                const dsH = dateSelEl.getBoundingClientRect().height;
+                const todayView = document.getElementById('todayView');
+                if (todayView) {
+                    todayView.style.paddingTop = (Math.round(h) + Math.round(dsH)) + 'px';
+                }
+            }
         }
     }
 
@@ -1645,7 +1669,11 @@ class HabitTrackerApp {
             this.renderCategoryItems('clientes', 'clientesList', APP_DATA.clientes, dateStr),
             this.renderCategoryItems('categorias', 'categoriasList', APP_DATA.categorias, dateStr),
             this.renderCategoryItems('atividades', 'atividadesList', APP_DATA.atividades, dateStr)
-        ]).then(() => this._applyTodayFilter());
+        ]).then(() => {
+            this._applyTodayFilter();
+            // Re-sincroniza alturas após render completo (importante para iOS PWA)
+            requestAnimationFrame(() => this._syncHeaderHeight());
+        });
     }
 
     _applyTodayFilter() {
