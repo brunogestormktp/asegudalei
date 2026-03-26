@@ -960,7 +960,42 @@ class HabitTrackerApp {
             this.renderTodayView();
         }, true); // Use capturing phase
 
-        // Aprendizados Picker
+        // Handler para remover imagem individual da nota (botão ✕ na miniatura)
+        document.addEventListener('click', async (e) => {
+            const removeBtn = e.target.closest('.note-img-remove');
+            if (!removeBtn) return;
+            e.stopPropagation();
+            e.preventDefault();
+
+            const srcToRemove = removeBtn.dataset.src;
+            const itemNote    = removeBtn.closest('.item-note');
+            if (!itemNote) return;
+            const itemId   = itemNote.dataset.itemId;
+            const category = itemNote.dataset.category;
+            if (!itemId || !category) return;
+
+            const dateStr = this.getDateString();
+            const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+            // Remover a linha [img:URL] correspondente do texto da nota
+            const newNote = (existing.note || '')
+                .split('\n')
+                .filter(line => !line.trim().startsWith(`[img:${srcToRemove}]`) &&
+                                !line.trim().startsWith(`[img:${srcToRemove} ]`) &&
+                                !(line.trim() === `[img:${srcToRemove}]`))
+                .filter(line => {
+                    // Filtro mais robusto: remover qualquer linha [img:...] que contenha a src
+                    const m = line.trim().match(/\[img:(.+?)\]$/);
+                    return !(m && m[1].trim() === srcToRemove);
+                })
+                .join('\n')
+                .trim();
+
+            await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', newNote, existing.links || null);
+
+            // Atualizar display sem re-render total
+            const itemEl = itemNote.closest('.item');
+            if (itemEl) this._updateNoteDisplay(itemEl, category, itemId, newNote);
+        }, true);
         this.initAprendizadosPicker();
     }
 
@@ -1688,7 +1723,9 @@ class HabitTrackerApp {
         this._activeImgPreview = null;
 
         document.addEventListener('mouseenter', (ev) => {
-            const thumb = ev.target.closest('.note-img-thumb');
+            const wrap = ev.target.closest('.note-img-wrap');
+            if (!wrap) return;
+            const thumb = wrap.querySelector('.note-img-thumb');
             if (!thumb) return;
             clearTimeout(this._imgPreviewTimer);
             this._imgPreviewTimer = setTimeout(() => {
@@ -1697,8 +1734,8 @@ class HabitTrackerApp {
         }, true);
 
         document.addEventListener('mouseleave', (ev) => {
-            const thumb = ev.target.closest('.note-img-thumb');
-            if (!thumb) return;
+            const wrap = ev.target.closest('.note-img-wrap');
+            if (!wrap) return;
             clearTimeout(this._imgPreviewTimer);
             // Não fechar se mouse foi para o preview
         }, true);
@@ -1757,8 +1794,8 @@ class HabitTrackerApp {
         const margin = 8;
 
         // Tentar posicionar à direita; se não couber, à esquerda
-        const previewW = 280;
-        const previewH = 200;
+        const previewW = 480;
+        const previewH = 400;
         let left = rect.right + margin;
         let top  = rect.top;
 
@@ -2520,7 +2557,9 @@ class HabitTrackerApp {
                     clickedElement.closest('.btn-google-search') ||
                     clickedElement.closest('.btn-link-item') ||
                     clickedElement.closest('.item-aprend-dropdown') ||
-                    clickedElement.closest('.item-week-bar')) {
+                    clickedElement.closest('.item-week-bar') ||
+                    clickedElement.closest('.note-img-remove') ||
+                    clickedElement.closest('.note-img-thumb')) {
                     return;
                 }
 
@@ -2992,16 +3031,23 @@ class HabitTrackerApp {
         const lines = text.split('\n');
         const tagParts  = [];   // tags flutuantes (🧠 🚫 ⏳) — vão primeiro no HTML
         const textParts = [];   // linhas de texto normal e imagens
-        const imgRegex  = /^\[img:((?:https?:\/\/|data:image\/)[^\]]+)\]$/;
+        // Regex permissivo: captura tudo entre [img: e o último ] da linha
+        const imgRegex  = /\[img:(.+?)\](?:\s*)$/;
 
         for (const line of lines) {
             const trimmed = line.trim();
-            // Imagem colada: [img:URL]
+            if (!trimmed) continue;
+
+            // Imagem colada: [img:URL] — testar antes de qualquer outro parser
             const imgMatch = trimmed.match(imgRegex);
-            if (imgMatch) {
-                const src = imgMatch[1];
+            if (imgMatch && trimmed.startsWith('[img:')) {
+                const src = imgMatch[1].trim();
+                // Wrapper relativo para o botão de remover
                 textParts.push(
-                    `<img class="note-img-thumb" src="${this._escapeHtml(src)}" data-src="${this._escapeHtml(src)}" alt="imagem" loading="lazy">`
+                    `<span class="note-img-wrap">` +
+                    `<img class="note-img-thumb" src="${this._escapeHtml(src)}" data-src="${this._escapeHtml(src)}" alt="imagem" loading="lazy">` +
+                    `<button class="note-img-remove" data-src="${this._escapeHtml(src)}" title="Remover imagem">✕</button>` +
+                    `</span>`
                 );
             } else if (trimmed.startsWith('🧠')) {
                 const content = trimmed.slice(2).trim();
@@ -3012,8 +3058,9 @@ class HabitTrackerApp {
             } else if (trimmed.startsWith('⏳')) {
                 const content = trimmed.slice(2).trim();
                 tagParts.push(`<span class="status-note-tag status-note-tag--parcialmente">⏳ ${this._escapeHtml(content)}</span>`);
-            } else if (trimmed !== '') {
-                const urlRegex = /(https?:\/\/[^\s]+)/g;
+            } else {
+                // Não transformar [img:...] em link — apenas URLs puras
+                const urlRegex = /(https?:\/\/[^\s\]]+)/g;
                 const linked = line.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" class="note-link">$1</a>');
                 textParts.push(linked);
             }
@@ -3021,7 +3068,6 @@ class HabitTrackerApp {
         // Tags vêm primeiro no HTML para que o float:right funcione corretamente,
         // depois o texto normal com quebras de linha
         const tagsHtml  = tagParts.join('');
-        // Imagens ficam em bloco separado (inline-block), texto com <br>
         const textHtml  = textParts.join('<br>');
         return tagsHtml + textHtml;
     }
