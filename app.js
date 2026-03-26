@@ -30,6 +30,7 @@ class HabitTrackerApp {
 
         this.setupEventListeners();
         this.initSpeech();
+        this._initWeekBarTooltips();
         this._syncHeaderHeight();
         window.addEventListener('resize', () => this._syncHeaderHeight());
         this.renderTodayView();
@@ -1460,6 +1461,7 @@ class HabitTrackerApp {
         days.forEach((d, i) => {
             const dateStr   = this.getDateString(d);
             const status    = statuses[i].status || 'none';
+            const note      = statuses[i].note || '';
             const isToday   = dateStr === todayStr;
             const isViewing = dateStr === viewingStr;
 
@@ -1483,6 +1485,7 @@ class HabitTrackerApp {
             const block = document.createElement('div');
             block.className = 'week-bar-block';
             block.dataset.status = status;
+            if (note.trim()) block.dataset.note = note;
 
             dayEl.appendChild(labelEl);
             dayEl.appendChild(daynumEl);
@@ -1504,6 +1507,8 @@ class HabitTrackerApp {
     }
 
     _showWeekDayPicker(dayEl, blockEl, dateStr, category, itemId, item) {
+        // Fechar tooltip de nota se estiver aberto
+        this._hideWeekBarTooltip(true);
         // Fechar qualquer picker anterior
         document.querySelectorAll('.wday-picker').forEach(p => p.remove());
 
@@ -1606,6 +1611,158 @@ class HabitTrackerApp {
             }
         };
         setTimeout(() => document.addEventListener('click', close, true), 10);
+    }
+
+    // ── Weekbar Note Tooltip ──────────────────────────────────────────────
+    _initWeekBarTooltips() {
+        if (this._weekbarTooltipInited) return;
+        this._weekbarTooltipInited = true;
+
+        // State
+        this._activeTooltip = null;
+        this._tooltipHideTimer = null;
+        this._longPressTimer = null;
+
+        const isMobile = () => window.matchMedia('(max-width: 768px)').matches || ('ontouchstart' in window);
+
+        // ── Desktop: hover ──────────────────────────────────────────
+        document.addEventListener('mouseenter', (ev) => {
+            if (isMobile()) return;
+            const block = ev.target.closest('.week-bar-block[data-note]');
+            if (!block) return;
+            clearTimeout(this._tooltipHideTimer);
+            this._showWeekBarTooltip(block);
+        }, true);
+
+        document.addEventListener('mouseleave', (ev) => {
+            if (isMobile()) return;
+            const block = ev.target.closest('.week-bar-block[data-note]');
+            if (!block) return;
+            // Delay to allow mouse to enter the tooltip
+            this._tooltipHideTimer = setTimeout(() => this._hideWeekBarTooltip(), 200);
+        }, true);
+
+        // Keep tooltip alive when mouse enters it
+        document.addEventListener('mouseenter', (ev) => {
+            if (isMobile()) return;
+            if (ev.target.closest('.weekbar-tooltip')) {
+                clearTimeout(this._tooltipHideTimer);
+            }
+        }, true);
+
+        document.addEventListener('mouseleave', (ev) => {
+            if (isMobile()) return;
+            if (ev.target.closest('.weekbar-tooltip')) {
+                this._tooltipHideTimer = setTimeout(() => this._hideWeekBarTooltip(), 150);
+            }
+        }, true);
+
+        // ── Mobile: long-press ──────────────────────────────────────
+        let _longPressBlock = null;
+        document.addEventListener('touchstart', (ev) => {
+            const block = ev.target.closest('.week-bar-block[data-note]');
+            if (!block) return;
+            _longPressBlock = block;
+            this._longPressTimer = setTimeout(() => {
+                this._showWeekBarTooltip(block, true);
+                _longPressBlock = null; // consumed — don't let click fire picker
+            }, 400);
+        }, { passive: true });
+
+        document.addEventListener('touchend', (ev) => {
+            clearTimeout(this._longPressTimer);
+            // If long-press tooltip is open, prevent click-through to picker
+            if (this._activeTooltip && !_longPressBlock) {
+                // tooltip was just shown by long-press, swallow the touchend
+            }
+            _longPressBlock = null;
+        }, true);
+
+        document.addEventListener('touchmove', () => {
+            clearTimeout(this._longPressTimer);
+            _longPressBlock = null;
+        }, true);
+    }
+
+    _showWeekBarTooltip(block, isMobile = false) {
+        // Remove existing tooltip
+        this._hideWeekBarTooltip(true);
+
+        const note = block.dataset.note;
+        if (!note || !note.trim()) return;
+
+        const tooltip = document.createElement('div');
+        tooltip.className = 'weekbar-tooltip';
+
+        // Close button (visible on mobile via CSS)
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'weekbar-tooltip-close';
+        closeBtn.textContent = '✕';
+        closeBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            this._hideWeekBarTooltip();
+        });
+        tooltip.appendChild(closeBtn);
+
+        const textEl = document.createElement('div');
+        textEl.className = 'weekbar-tooltip-text';
+        textEl.textContent = note;
+        tooltip.appendChild(textEl);
+
+        document.body.appendChild(tooltip);
+        this._activeTooltip = tooltip;
+
+        // Position above the block
+        const blockRect = block.getBoundingClientRect();
+        const tipRect   = tooltip.getBoundingClientRect();
+
+        let left = blockRect.left + blockRect.width / 2 - tipRect.width / 2;
+        let top  = blockRect.top - tipRect.height - 8;
+
+        // Keep within viewport
+        const margin = 8;
+        if (left < margin) left = margin;
+        if (left + tipRect.width > window.innerWidth - margin) {
+            left = window.innerWidth - margin - tipRect.width;
+        }
+        // If no room above, place below
+        if (top < margin) {
+            top = blockRect.bottom + 8;
+            tooltip.classList.add('weekbar-tooltip--below');
+        }
+
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top  = `${top}px`;
+
+        // Adjust arrow position to point at the block
+        const arrowLeft = blockRect.left + blockRect.width / 2 - left;
+        tooltip.style.setProperty('--arrow-left', `${arrowLeft}px`);
+
+        // On mobile, close when tapping outside
+        if (isMobile) {
+            const closeMobile = (e) => {
+                if (!tooltip.contains(e.target)) {
+                    this._hideWeekBarTooltip();
+                    document.removeEventListener('touchstart', closeMobile, true);
+                }
+            };
+            setTimeout(() => document.addEventListener('touchstart', closeMobile, true), 50);
+        }
+    }
+
+    _hideWeekBarTooltip(immediate = false) {
+        const tip = this._activeTooltip;
+        if (!tip) return;
+        this._activeTooltip = null;
+
+        if (immediate) {
+            tip.remove();
+            return;
+        }
+        tip.classList.add('weekbar-tooltip--closing');
+        tip.addEventListener('animationend', () => tip.remove(), { once: true });
+        // Fallback removal
+        setTimeout(() => { if (tip.parentNode) tip.remove(); }, 200);
     }
     // ─── Fim Barra Semanal ────────────────────────────────────────────────────
 
