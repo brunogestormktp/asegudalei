@@ -3386,6 +3386,32 @@ mark.tsf-highlight {
     transition: all 0.15s ease;
 }
 .link-picker-close:hover { background: rgba(149, 211, 238, 0.2); color: var(--text-100); }
+
+/* Bloco fixo do item de origem no topo do picker */
+.link-picker-source {
+    padding: 10px 14px;
+    margin: 0 12px 6px;
+    background: rgba(149, 211, 238, 0.08);
+    border: 1px solid rgba(149, 211, 238, 0.18);
+    border-radius: 8px;
+}
+.link-picker-source-name {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--text-100);
+    line-height: 1.3;
+}
+.link-picker-source-note {
+    margin-top: 4px;
+    font-size: 0.78rem;
+    color: var(--text-200);
+    line-height: 1.35;
+    white-space: pre-line;
+    max-height: 3.6em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .link-picker-list {
     flex: 1;
     overflow-y: auto;

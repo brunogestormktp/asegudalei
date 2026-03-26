@@ -1797,6 +1797,16 @@ class HabitTrackerApp {
         header.innerHTML = `<span>🔗 Vincular item</span><button class="link-picker-close">✕</button>`;
         popup.appendChild(header);
 
+        // Bloco fixo: mostra o item de origem (nome + nota) para referência
+        const sourceItem = (APP_DATA[category] || []).find(i => i.id === itemId);
+        const sourceName = sourceItem ? sourceItem.name : itemId;
+        const sourceNote = (currentData.note || '').trim();
+        const sourceBlock = document.createElement('div');
+        sourceBlock.className = 'link-picker-source';
+        sourceBlock.innerHTML = `<div class="link-picker-source-name">${this._escapeHtml(sourceName)}</div>`
+            + (sourceNote ? `<div class="link-picker-source-note">${this._escapeHtml(sourceNote)}</div>` : '');
+        popup.appendChild(sourceBlock);
+
         // List
         const listWrap = document.createElement('div');
         listWrap.className = 'link-picker-list';
