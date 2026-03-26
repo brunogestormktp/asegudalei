@@ -3407,7 +3407,7 @@ mark.tsf-highlight {
 .link-picker-group-label:first-child { border-top: none; margin-top: 0; }
 .link-picker-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     padding: 7px 6px;
     border-radius: 6px;
@@ -3421,21 +3421,37 @@ mark.tsf-highlight {
     height: 16px;
     flex-shrink: 0;
     cursor: pointer;
+    margin-top: 2px;
+}
+.link-picker-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
 .link-picker-name {
     font-family: 'Quicksand', sans-serif;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--text-80);
-    flex: 1;
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.link-picker-note-indicator {
+.link-picker-note-preview {
+    font-family: 'Quicksand', sans-serif;
     font-size: 11px;
-    flex-shrink: 0;
+    font-weight: 400;
+    color: var(--text-40);
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 40px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 .link-picker-actions {
     display: flex;

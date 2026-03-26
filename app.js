@@ -1813,9 +1813,9 @@ class HabitTrackerApp {
 
                 const isLinked = currentLinks.some(l => l.category === group.key && l.itemId === it.id);
 
-                // Buscar status do item para hoje (mostrar indicador visual)
+                // Buscar status do item para hoje (mostrar nota/demanda)
                 const itData = await StorageManager.getItemStatus(dateStr, group.key, it.id);
-                const hasNote = !!(itData.note && itData.note.trim());
+                const noteText = (itData.note || '').trim();
 
                 const row = document.createElement('label');
                 row.className = 'link-picker-row';
@@ -1827,17 +1827,23 @@ class HabitTrackerApp {
                 cb.dataset.cat = group.key;
                 cb.dataset.itemId = it.id;
 
+                const infoWrap = document.createElement('div');
+                infoWrap.className = 'link-picker-info';
+
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'link-picker-name';
                 nameSpan.textContent = it.name;
+                infoWrap.appendChild(nameSpan);
 
-                const noteIndicator = document.createElement('span');
-                noteIndicator.className = 'link-picker-note-indicator';
-                noteIndicator.textContent = hasNote ? '📝' : '';
+                if (noteText) {
+                    const notePreview = document.createElement('span');
+                    notePreview.className = 'link-picker-note-preview';
+                    notePreview.textContent = noteText;
+                    infoWrap.appendChild(notePreview);
+                }
 
                 row.appendChild(cb);
-                row.appendChild(nameSpan);
-                row.appendChild(noteIndicator);
+                row.appendChild(infoWrap);
                 listWrap.appendChild(row);
             }
         }
