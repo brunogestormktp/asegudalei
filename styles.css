@@ -1430,6 +1430,73 @@ mark.tsf-highlight {
 }
 .weekbar-tooltip-text::-webkit-scrollbar { width: 3px; }
 .weekbar-tooltip-text::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.2); border-radius: 2px; }
+
+/* Header com data do dia */
+.weekbar-tooltip-header {
+    font-family: 'Quicksand', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent, #95d3ee);
+    margin-bottom: 6px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+/* Textarea editável */
+.weekbar-tooltip-textarea {
+    display: block;
+    width: 100%;
+    min-width: 200px;
+    min-height: 52px;
+    max-height: 140px;
+    padding: 6px 8px;
+    background: rgba(149, 211, 238, 0.06);
+    border: 1px solid rgba(149, 211, 238, 0.15);
+    border-radius: 6px;
+    color: var(--text-80);
+    font-family: 'Quicksand', sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.weekbar-tooltip-textarea:focus {
+    border-color: rgba(149, 211, 238, 0.4);
+}
+.weekbar-tooltip-textarea::placeholder {
+    color: rgba(149, 211, 238, 0.35);
+    font-style: italic;
+}
+.weekbar-tooltip-textarea::-webkit-scrollbar { width: 3px; }
+.weekbar-tooltip-textarea::-webkit-scrollbar-thumb { background: rgba(149,211,238,0.2); border-radius: 2px; }
+
+/* Indicador de salvamento */
+.weekbar-tooltip-save-indicator {
+    font-family: 'Quicksand', sans-serif;
+    font-size: 10px;
+    color: rgba(34, 197, 94, 0.7);
+    text-align: right;
+    margin-top: 3px;
+    height: 14px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.weekbar-tooltip-save-indicator.visible {
+    opacity: 1;
+}
+
+/* Editable tooltip: ajustar padding e largura */
+.weekbar-tooltip--editable {
+    min-width: 220px;
+    max-width: 320px;
+    padding: 10px 12px 6px;
+}
+/* Editable tooltip: sempre mostrar botão fechar */
+.weekbar-tooltip--editable .weekbar-tooltip-close {
+    display: flex;
+}
+
 /* Botão fechar (mobile) */
 .weekbar-tooltip-close {
     display: none;
@@ -1456,11 +1523,19 @@ mark.tsf-highlight {
     .weekbar-tooltip {
         max-width: min(300px, 85vw);
     }
+    .weekbar-tooltip--editable {
+        max-width: min(320px, 90vw);
+        min-width: min(260px, 80vw);
+    }
     .weekbar-tooltip-close {
         display: flex;
     }
     .weekbar-tooltip-text {
         padding-right: 18px;
+    }
+    .weekbar-tooltip-textarea {
+        min-width: unset;
+        width: 100%;
     }
 }
 

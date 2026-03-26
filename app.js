@@ -1485,6 +1485,10 @@ class HabitTrackerApp {
             const block = document.createElement('div');
             block.className = 'week-bar-block';
             block.dataset.status = status;
+            block.dataset.date = dateStr;
+            block.dataset.category = category;
+            block.dataset.itemId = itemId;
+            if (isToday) block.dataset.isToday = '1';
             if (note.trim()) block.dataset.note = note;
 
             dayEl.appendChild(labelEl);
@@ -1625,24 +1629,45 @@ class HabitTrackerApp {
         this._activeTooltip = null;
         this._tooltipHideTimer = null;
         this._longPressTimer = null;
+        this._tooltipSaveTimer = null;
 
         const isMobile = () => window.matchMedia('(max-width: 768px)').matches || ('ontouchstart' in window);
 
+        // Selector: qualquer bloco que NÃO seja hoje
+        const getBlock = (el) => {
+            const block = el.closest('.week-bar-block');
+            if (!block || block.dataset.isToday === '1') return null;
+            return block;
+        };
+
         // ── Desktop: hover ──────────────────────────────────────────
+        // Helper: não fechar tooltip se textarea estiver com foco
+        const shouldKeepOpen = () => {
+            if (!this._activeTooltip) return false;
+            const ta = this._activeTooltip.querySelector('.weekbar-tooltip-textarea');
+            return ta && ta === document.activeElement;
+        };
+
         document.addEventListener('mouseenter', (ev) => {
             if (isMobile()) return;
-            const block = ev.target.closest('.week-bar-block[data-note]');
+            const block = getBlock(ev.target);
             if (!block) return;
             clearTimeout(this._tooltipHideTimer);
+            // Se já temos tooltip aberto para outro bloco E textarea focada, não trocar
+            if (this._activeTooltipBlock && this._activeTooltipBlock !== block && shouldKeepOpen()) return;
             this._showWeekBarTooltip(block);
         }, true);
 
         document.addEventListener('mouseleave', (ev) => {
             if (isMobile()) return;
-            const block = ev.target.closest('.week-bar-block[data-note]');
+            const block = getBlock(ev.target);
             if (!block) return;
+            // Não fechar se textarea estiver com foco (usuário editando)
+            if (shouldKeepOpen()) return;
             // Delay to allow mouse to enter the tooltip
-            this._tooltipHideTimer = setTimeout(() => this._hideWeekBarTooltip(), 200);
+            this._tooltipHideTimer = setTimeout(() => {
+                if (!shouldKeepOpen()) this._hideWeekBarTooltip();
+            }, 300);
         }, true);
 
         // Keep tooltip alive when mouse enters it
@@ -1656,14 +1681,17 @@ class HabitTrackerApp {
         document.addEventListener('mouseleave', (ev) => {
             if (isMobile()) return;
             if (ev.target.closest('.weekbar-tooltip')) {
-                this._tooltipHideTimer = setTimeout(() => this._hideWeekBarTooltip(), 150);
+                if (shouldKeepOpen()) return;
+                this._tooltipHideTimer = setTimeout(() => {
+                    if (!shouldKeepOpen()) this._hideWeekBarTooltip();
+                }, 300);
             }
         }, true);
 
         // ── Mobile: long-press ──────────────────────────────────────
         let _longPressBlock = null;
         document.addEventListener('touchstart', (ev) => {
-            const block = ev.target.closest('.week-bar-block[data-note]');
+            const block = getBlock(ev.target);
             if (!block) return;
             _longPressBlock = block;
             this._longPressTimer = setTimeout(() => {
@@ -1691,13 +1719,37 @@ class HabitTrackerApp {
         // Remove existing tooltip
         this._hideWeekBarTooltip(true);
 
-        const note = block.dataset.note;
-        if (!note || !note.trim()) return;
+        const note      = (block.dataset.note || '').trim();
+        const dateStr   = block.dataset.date;
+        const category  = block.dataset.category;
+        const itemId    = block.dataset.itemId;
+        if (!dateStr || !category || !itemId) return;
+
+        // Determinar se é passado ou futuro (tooltip não aparece para hoje)
+        const todayStr  = this.getDateString(new Date());
+        const isFuture  = dateStr > todayStr;
+        const isPast    = dateStr < todayStr;
+
+        // Se não tem nota E é passado, não abre tooltip vazio (só futuro abre vazio)
+        // EDIT: abrir para ambos – passado e futuro – para permitir anotações retroativas
+        // (se quiser bloquear passado vazio, descomentar a linha abaixo)
+        // if (!note && isPast) return;
 
         const tooltip = document.createElement('div');
-        tooltip.className = 'weekbar-tooltip';
+        tooltip.className = 'weekbar-tooltip weekbar-tooltip--editable';
 
-        // Close button (visible on mobile via CSS)
+        // Header: data formatada
+        const d = new Date(dateStr + 'T12:00:00');
+        const weekdays = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+        const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        const dateLabel = `${weekdays[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+
+        const headerEl = document.createElement('div');
+        headerEl.className = 'weekbar-tooltip-header';
+        headerEl.textContent = dateLabel;
+        tooltip.appendChild(headerEl);
+
+        // Close button
         const closeBtn = document.createElement('button');
         closeBtn.className = 'weekbar-tooltip-close';
         closeBtn.textContent = '✕';
@@ -1707,13 +1759,72 @@ class HabitTrackerApp {
         });
         tooltip.appendChild(closeBtn);
 
-        const textEl = document.createElement('div');
-        textEl.className = 'weekbar-tooltip-text';
-        textEl.textContent = note;
-        tooltip.appendChild(textEl);
+        // Textarea editável
+        const textarea = document.createElement('textarea');
+        textarea.className = 'weekbar-tooltip-textarea';
+        textarea.value = note;
+        textarea.placeholder = isFuture
+            ? 'Escreva demanda futura…'
+            : 'Adicionar anotação…';
+        textarea.rows = 3;
+        tooltip.appendChild(textarea);
+
+        // Indicador de salvamento
+        const saveIndicator = document.createElement('div');
+        saveIndicator.className = 'weekbar-tooltip-save-indicator';
+        tooltip.appendChild(saveIndicator);
+
+        // Auto-save com debounce
+        let saveTimer = null;
+        const autoSave = async () => {
+            const newNote = textarea.value.trim();
+            saveIndicator.textContent = 'salvando…';
+            saveIndicator.classList.add('visible');
+
+            // Atualizar data-note no bloco
+            if (newNote) {
+                block.dataset.note = newNote;
+            } else {
+                delete block.dataset.note;
+            }
+
+            // Salvar via StorageManager (preserva status e links)
+            const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+            await StorageManager.saveItemStatus(
+                dateStr, category, itemId,
+                existing.status || 'none',
+                newNote,
+                existing.links || null
+            );
+
+            saveIndicator.textContent = '✓ salvo';
+            setTimeout(() => {
+                saveIndicator.classList.remove('visible');
+            }, 1200);
+        };
+
+        textarea.addEventListener('input', () => {
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(autoSave, 600);
+        });
+
+        // Salvar ao perder foco também
+        textarea.addEventListener('blur', () => {
+            clearTimeout(saveTimer);
+            const newNote = textarea.value.trim();
+            const oldNote = (block.dataset.note || '').trim();
+            if (newNote !== oldNote || (newNote && !block.dataset.note)) {
+                autoSave();
+            }
+        });
+
+        // Impedir que clique no textarea feche tooltip ou propague
+        textarea.addEventListener('click', (ev) => ev.stopPropagation());
+        textarea.addEventListener('mousedown', (ev) => ev.stopPropagation());
 
         document.body.appendChild(tooltip);
         this._activeTooltip = tooltip;
+        this._activeTooltipBlock = block;
 
         // Position above the block
         const blockRect = block.getBoundingClientRect();
@@ -1741,12 +1852,39 @@ class HabitTrackerApp {
         const arrowLeft = blockRect.left + blockRect.width / 2 - left;
         tooltip.style.setProperty('--arrow-left', `${arrowLeft}px`);
 
+        // Auto-focus textarea (desktop: delay pequeno; mobile: não focar para evitar teclado indesejado)
+        if (!isMobile) {
+            setTimeout(() => {
+                textarea.focus();
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+            }, 80);
+
+            // Desktop: fechar ao clicar fora do tooltip
+            const closeDesktop = (e) => {
+                if (!tooltip.contains(e.target) && !block.contains(e.target)) {
+                    // Salvar se mudou antes de fechar
+                    const newNote = textarea.value.trim();
+                    if (newNote !== note) autoSave();
+                    this._hideWeekBarTooltip();
+                    document.removeEventListener('mousedown', closeDesktop, true);
+                }
+            };
+            setTimeout(() => document.addEventListener('mousedown', closeDesktop, true), 100);
+            // Guardar ref para remover no hide
+            tooltip._desktopCloseHandler = closeDesktop;
+        }
+
         // On mobile, close when tapping outside
         if (isMobile) {
             const closeMobile = (e) => {
                 if (!tooltip.contains(e.target)) {
-                    this._hideWeekBarTooltip();
-                    document.removeEventListener('touchstart', closeMobile, true);
+                    // Salvar se mudou antes de fechar
+                    const newNote = textarea.value.trim();
+                    if (newNote !== note) autoSave();
+                    setTimeout(() => {
+                        this._hideWeekBarTooltip();
+                        document.removeEventListener('touchstart', closeMobile, true);
+                    }, 50);
                 }
             };
             setTimeout(() => document.addEventListener('touchstart', closeMobile, true), 50);
@@ -1757,6 +1895,13 @@ class HabitTrackerApp {
         const tip = this._activeTooltip;
         if (!tip) return;
         this._activeTooltip = null;
+        this._activeTooltipBlock = null;
+        clearTimeout(this._tooltipSaveTimer);
+
+        // Remover handler de click-outside (desktop)
+        if (tip._desktopCloseHandler) {
+            document.removeEventListener('mousedown', tip._desktopCloseHandler, true);
+        }
 
         if (immediate) {
             tip.remove();
