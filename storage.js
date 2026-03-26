@@ -179,15 +179,20 @@ const StorageManager = {
     },
 
     // Save status for a specific item on a specific date
-    async saveItemStatus(dateStr, category, itemId, status, note = '') {
+    async saveItemStatus(dateStr, category, itemId, status, note = '', links = null) {
         const allData = await this.getData();
         
         if (!allData[dateStr]) allData[dateStr] = {};
         if (!allData[dateStr][category]) allData[dateStr][category] = {};
         
+        // Preserve existing links if not explicitly provided
+        const existing = allData[dateStr][category][itemId];
+        const existingLinks = (existing && typeof existing === 'object') ? (existing.links || []) : [];
+
         allData[dateStr][category][itemId] = {
             status: status,
             note: note,
+            links: links !== null ? links : existingLinks,
             updatedAt: new Date().toISOString()
         };
         
@@ -200,14 +205,15 @@ const StorageManager = {
         const dateData = await this.getDateData(dateStr);
         const itemData = dateData[category]?.[itemId];
         
-        if (!itemData) return { status: 'none', note: '' };
+        if (!itemData) return { status: 'none', note: '', links: [] };
         
         // Handle old format (just status string)
-        if (typeof itemData === 'string') return { status: itemData, note: '' };
+        if (typeof itemData === 'string') return { status: itemData, note: '', links: [] };
         
         return {
             status: itemData.status || 'none',
-            note: itemData.note || ''
+            note: itemData.note || '',
+            links: itemData.links || []
         };
     },
 

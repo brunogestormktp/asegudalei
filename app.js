@@ -1556,6 +1556,9 @@ class HabitTrackerApp {
                 const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
                 await StorageManager.saveItemStatus(dateStr, category, itemId, opt.key, existing.note || '');
 
+                // Propagar status para itens vinculados
+                await this._propagateStatusToLinks(dateStr, category, itemId, opt.key);
+
                 // Atualizar bloco visual
                 dayEl.dataset.status = opt.key;
                 blockEl.dataset.status = opt.key;
@@ -1764,6 +1767,182 @@ class HabitTrackerApp {
         // Fallback removal
         setTimeout(() => { if (tip.parentNode) tip.remove(); }, 200);
     }
+
+    // ── Item Link / Vincular ──────────────────────────────────────────────
+    async _showLinkPicker(btn, category, itemId, itemEl) {
+        // Fechar qualquer picker anterior
+        document.querySelectorAll('.link-picker-overlay').forEach(p => p.remove());
+
+        const dateStr = this.getDateString();
+        const currentData = await StorageManager.getItemStatus(dateStr, category, itemId);
+        const currentLinks = currentData.links || [];
+
+        // Coletar todos os itens de todas as categorias
+        const groups = [
+            { key: 'clientes',   label: '👥 Clientes',  items: APP_DATA.clientes },
+            { key: 'categorias', label: '🏢 Empresa',   items: APP_DATA.categorias },
+            { key: 'atividades', label: '👤 Pessoal',   items: APP_DATA.atividades }
+        ];
+
+        // Overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'link-picker-overlay';
+
+        const popup = document.createElement('div');
+        popup.className = 'link-picker-popup';
+
+        // Header
+        const header = document.createElement('div');
+        header.className = 'link-picker-header';
+        header.innerHTML = `<span>🔗 Vincular item</span><button class="link-picker-close">✕</button>`;
+        popup.appendChild(header);
+
+        // List
+        const listWrap = document.createElement('div');
+        listWrap.className = 'link-picker-list';
+
+        for (const group of groups) {
+            const groupEl = document.createElement('div');
+            groupEl.className = 'link-picker-group-label';
+            groupEl.textContent = group.label;
+            listWrap.appendChild(groupEl);
+
+            for (const it of group.items) {
+                // Não mostrar o próprio item
+                if (group.key === category && it.id === itemId) continue;
+
+                const isLinked = currentLinks.some(l => l.category === group.key && l.itemId === it.id);
+
+                // Buscar status do item para hoje (mostrar indicador visual)
+                const itData = await StorageManager.getItemStatus(dateStr, group.key, it.id);
+                const hasNote = !!(itData.note && itData.note.trim());
+
+                const row = document.createElement('label');
+                row.className = 'link-picker-row';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'link-picker-cb';
+                cb.checked = isLinked;
+                cb.dataset.cat = group.key;
+                cb.dataset.itemId = it.id;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'link-picker-name';
+                nameSpan.textContent = it.name;
+
+                const noteIndicator = document.createElement('span');
+                noteIndicator.className = 'link-picker-note-indicator';
+                noteIndicator.textContent = hasNote ? '📝' : '';
+
+                row.appendChild(cb);
+                row.appendChild(nameSpan);
+                row.appendChild(noteIndicator);
+                listWrap.appendChild(row);
+            }
+        }
+
+        popup.appendChild(listWrap);
+
+        // Actions
+        const actions = document.createElement('div');
+        actions.className = 'link-picker-actions';
+        const btnOk = document.createElement('button');
+        btnOk.className = 'link-picker-btn-ok';
+        btnOk.textContent = 'OK';
+        const btnCancel = document.createElement('button');
+        btnCancel.className = 'link-picker-btn-cancel';
+        btnCancel.textContent = 'Cancelar';
+        actions.appendChild(btnCancel);
+        actions.appendChild(btnOk);
+        popup.appendChild(actions);
+
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+
+        // Focus trap
+        requestAnimationFrame(() => popup.focus());
+
+        const close = () => {
+            overlay.classList.add('link-picker-closing');
+            overlay.addEventListener('animationend', () => overlay.remove(), { once: true });
+            setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+        };
+
+        // Close handlers
+        header.querySelector('.link-picker-close').addEventListener('click', close);
+        btnCancel.addEventListener('click', close);
+        overlay.addEventListener('click', (ev) => {
+            if (ev.target === overlay) close();
+        });
+
+        // OK handler — salva os links bidirecionais
+        btnOk.addEventListener('click', async () => {
+            const checkboxes = listWrap.querySelectorAll('.link-picker-cb');
+            const newLinks = [];
+            checkboxes.forEach(cb => {
+                if (cb.checked) {
+                    newLinks.push({ category: cb.dataset.cat, itemId: cb.dataset.itemId });
+                }
+            });
+
+            // Salvar links do item atual
+            await StorageManager.saveItemStatus(dateStr, category, itemId, currentData.status || 'none', currentData.note || '', newLinks);
+
+            // Para cada item selecionado, garantir que o link reverso existe
+            for (const lnk of newLinks) {
+                const targetData = await StorageManager.getItemStatus(dateStr, lnk.category, lnk.itemId);
+                const targetLinks = targetData.links || [];
+                const alreadyLinked = targetLinks.some(l => l.category === category && l.itemId === itemId);
+                if (!alreadyLinked) {
+                    targetLinks.push({ category, itemId });
+                    await StorageManager.saveItemStatus(dateStr, lnk.category, lnk.itemId, targetData.status || 'none', targetData.note || '', targetLinks);
+                }
+            }
+
+            // Remover links reversos dos itens que foram desmarcados
+            const removedLinks = currentLinks.filter(old => !newLinks.some(n => n.category === old.category && n.itemId === old.itemId));
+            for (const lnk of removedLinks) {
+                const targetData = await StorageManager.getItemStatus(dateStr, lnk.category, lnk.itemId);
+                const targetLinks = (targetData.links || []).filter(l => !(l.category === category && l.itemId === itemId));
+                await StorageManager.saveItemStatus(dateStr, lnk.category, lnk.itemId, targetData.status || 'none', targetData.note || '', targetLinks);
+            }
+
+            close();
+            this.renderTodayView();
+        });
+    }
+
+    async _removeLink(sourceCat, sourceId, targetCat, targetId) {
+        const dateStr = this.getDateString();
+
+        // Remover do item fonte
+        const sourceData = await StorageManager.getItemStatus(dateStr, sourceCat, sourceId);
+        const sourceLinks = (sourceData.links || []).filter(l => !(l.category === targetCat && l.itemId === targetId));
+        await StorageManager.saveItemStatus(dateStr, sourceCat, sourceId, sourceData.status || 'none', sourceData.note || '', sourceLinks);
+
+        // Remover link reverso do item alvo
+        const targetData = await StorageManager.getItemStatus(dateStr, targetCat, targetId);
+        const targetLinks = (targetData.links || []).filter(l => !(l.category === sourceCat && l.itemId === sourceId));
+        await StorageManager.saveItemStatus(dateStr, targetCat, targetId, targetData.status || 'none', targetData.note || '', targetLinks);
+
+        this.renderTodayView();
+    }
+
+    // Propaga mudança de status para todos os itens vinculados
+    async _propagateStatusToLinks(dateStr, category, itemId, newStatus) {
+        const data = await StorageManager.getItemStatus(dateStr, category, itemId);
+        const links = data.links || [];
+        if (links.length === 0) return;
+
+        for (const lnk of links) {
+            const targetData = await StorageManager.getItemStatus(dateStr, lnk.category, lnk.itemId);
+            // Só propagar se o status é diferente
+            if (targetData.status !== newStatus) {
+                await StorageManager.saveItemStatus(dateStr, lnk.category, lnk.itemId, newStatus, targetData.note || '');
+            }
+        }
+    }
     // ─── Fim Barra Semanal ────────────────────────────────────────────────────
 
     getDateString(date = this.currentDate) {
@@ -1919,13 +2098,26 @@ class HabitTrackerApp {
                 noteHtml = `<div class="item-note" data-item-id="${item.id}" data-category="${category}">${noteWithLinks}<button class="btn-note-delete" data-item-id="${item.id}" data-category="${category}" title="Apagar nota">✖</button></div>`;
             }
 
+            // Build link tags HTML
+            let linkTagsHtml = '';
+            if (itemData.links && itemData.links.length > 0) {
+                const tagItems = itemData.links.map(lnk => {
+                    const linkedItem = (APP_DATA[lnk.category] || []).find(i => i.id === lnk.itemId);
+                    const name = linkedItem ? linkedItem.name : lnk.itemId;
+                    return `<span class="item-link-tag" data-link-cat="${lnk.category}" data-link-id="${lnk.itemId}" title="Vinculado a ${name}">🔗 ${this._escapeHtml(name)}<button class="item-link-tag-remove" data-link-cat="${lnk.category}" data-link-id="${lnk.itemId}">✕</button></span>`;
+                }).join('');
+                linkTagsHtml = `<div class="item-link-tags" data-item-id="${item.id}" data-category="${category}">${tagItems}</div>`;
+            }
+
             // Build header with mic button (custom status dropdown will be inserted programmatically)
             const hasNoteInitially = !!(itemData.note && itemData.note.trim());
+            const hasLinksInitially = !!(itemData.links && itemData.links.length > 0);
             const headerHtml = `
                 <div class="item-header">
                     <span class="item-name" tabindex="0">${item.name}</span>
                     <div style="display:flex;gap:0.5rem;align-items:center;">
                         <button class="btn-google-search" title="Pesquisar nota no Google" aria-label="Pesquisar no Google" style="display:${hasNoteInitially ? 'inline-flex' : 'none'};align-items:center;justify-content:center;padding:2px 4px;background:none;border:none;cursor:pointer;border-radius:4px;opacity:0.75;" tabindex="-1"><img src="https://www.google.com/favicon.ico" alt="Google" width="14" height="14" style="display:block;pointer-events:none;"></button>
+                        <button class="btn-link-item${hasLinksInitially ? ' has-links' : ''}" title="Vincular a outro item" aria-label="Vincular item">🔗</button>
                         <button class="btn-next-day" title="Passar para próximo dia" aria-label="Próximo dia">⏭</button>
                         <button class="btn-aprend-item" title="Inserir nota de Aprendizados" aria-label="Aprendizados">📚</button>
                         <button class="btn-mic" title="Gravar nota por voz" aria-label="Gravar nota por voz">🎙️</button>
@@ -1933,7 +2125,7 @@ class HabitTrackerApp {
                 </div>
             `;
 
-            itemEl.innerHTML = headerHtml + `${noteHtml}`;
+            itemEl.innerHTML = headerHtml + `${linkTagsHtml}${noteHtml}`;
 
             // Inline note editor (editable directly) - one click to type
             const noteText = itemData.note || '';
@@ -1985,6 +2177,7 @@ class HabitTrackerApp {
                     clickedElement.closest('.btn-aprend-item') ||
                     clickedElement.closest('.btn-next-day') ||
                     clickedElement.closest('.btn-google-search') ||
+                    clickedElement.closest('.btn-link-item') ||
                     clickedElement.closest('.item-aprend-dropdown') ||
                     clickedElement.closest('.item-week-bar')) {
                     return;
@@ -2232,6 +2425,9 @@ class HabitTrackerApp {
                 const existing = await StorageManager.getItemStatus(dateStr, category, item.id);
                 await StorageManager.saveItemStatus(dateStr, category, item.id, newStatus, existing.note || '');
 
+                // Propagar status para itens vinculados
+                await this._propagateStatusToLinks(dateStr, category, item.id, newStatus);
+
                 // Atualizar bloco de hoje na barra semanal
                 const barEl = itemEl.querySelector('.item-week-bar');
                 if (barEl) {
@@ -2338,6 +2534,30 @@ class HabitTrackerApp {
                     googleBtn.style.display = hasText ? 'inline-flex' : 'none';
                 }
             });
+
+            // ── Link / vincular a outro item ─────────────────────────────
+            const linkBtn = itemEl.querySelector('.btn-link-item');
+            if (linkBtn) {
+                linkBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                    this._showLinkPicker(linkBtn, category, item.id, itemEl);
+                });
+            }
+
+            // ── Remover link individual (click na tag ✕) ─────────────────
+            const linkTagsContainer = itemEl.querySelector('.item-link-tags');
+            if (linkTagsContainer) {
+                linkTagsContainer.addEventListener('click', async (ev) => {
+                    const removeBtn = ev.target.closest('.item-link-tag-remove');
+                    if (!removeBtn) return;
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                    const linkCat = removeBtn.dataset.linkCat;
+                    const linkId  = removeBtn.dataset.linkId;
+                    await this._removeLink(category, item.id, linkCat, linkId);
+                });
+            }
 
             // ── Aprendizados picker por item ─────────────────────────────
             const aprendBtn = itemEl.querySelector('.btn-aprend-item');
