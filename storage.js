@@ -515,5 +515,30 @@ const StorageManager = {
                 try { app.renderCurrentView(); } finally { this._realtimeSyncing = false; }
             }
         } catch(e) { /* rede offline — silencioso, tentará novamente em 10s */ }
+    },
+
+    // ── Upload de imagem para o bucket note-images no Supabase Storage ──
+    // Retorna a URL pública da imagem, ou null em caso de erro.
+    async uploadNoteImage(file) {
+        const supabase = this.getSupabase();
+        const userId   = this.getUserId();
+        if (!supabase || !userId) return null;
+
+        // Extensão e nome único
+        const ext  = file.type.split('/')[1]?.replace('jpeg','jpg') || 'png';
+        const name = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+
+        const { data, error } = await supabase.storage
+            .from('note-images')
+            .upload(name, file, { cacheControl: '3600', upsert: false, contentType: file.type });
+
+        if (error) {
+            console.error('❌ Erro ao fazer upload de imagem:', error.message);
+            return null;
+        }
+
+        // Obter URL pública
+        const { data: urlData } = supabase.storage.from('note-images').getPublicUrl(name);
+        return urlData?.publicUrl || null;
     }
 };

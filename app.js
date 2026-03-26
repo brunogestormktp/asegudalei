@@ -31,6 +31,7 @@ class HabitTrackerApp {
         this.setupEventListeners();
         this.initSpeech();
         this._initWeekBarTooltips();
+        this._initNoteImagePaste();
         this._syncHeaderHeight();
         window.addEventListener('resize', () => this._syncHeaderHeight());
         this.renderTodayView();
@@ -1620,6 +1621,169 @@ class HabitTrackerApp {
         setTimeout(() => document.addEventListener('click', close, true), 10);
     }
 
+    // ── Note Image Paste (Ctrl/Cmd+V com imagem) ──────────────────────────
+    _initNoteImagePaste() {
+        if (this._noteImagePasteInited) return;
+        this._noteImagePasteInited = true;
+
+        // Interceptar Ctrl/Cmd+V em qualquer .item-note-editable
+        document.addEventListener('paste', async (ev) => {
+            const target = ev.target;
+            if (!target.closest('.item-note-editable')) return;
+
+            const items = ev.clipboardData?.items;
+            if (!items) return;
+
+            // Verificar se tem imagem no clipboard
+            let imageFile = null;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    imageFile = item.getAsFile();
+                    break;
+                }
+            }
+            if (!imageFile) return;
+
+            // Impedir o comportamento padrão (colagem de imagem inline no contentEditable)
+            ev.preventDefault();
+            ev.stopPropagation();
+
+            const noteEditable = target.closest('.item-note-editable');
+            const itemEl       = noteEditable.closest('.item');
+            if (!itemEl) return;
+            const category = itemEl.dataset.category;
+            const itemId   = itemEl.dataset.itemId;
+            if (!category || !itemId) return;
+
+            // Mostrar indicador de upload
+            const uploadIndicator = document.createElement('div');
+            uploadIndicator.className = 'note-img-upload-indicator';
+            uploadIndicator.textContent = '📷 Enviando imagem…';
+            noteEditable.insertAdjacentElement('afterend', uploadIndicator);
+
+            try {
+                const url = await StorageManager.uploadNoteImage(imageFile);
+                uploadIndicator.remove();
+
+                if (!url) {
+                    // Fallback: usar base64 local se upload falhar
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const b64url = e.target.result;
+                        this._insertImageInNote(noteEditable, itemEl, category, itemId, b64url);
+                    };
+                    reader.readAsDataURL(imageFile);
+                    return;
+                }
+
+                this._insertImageInNote(noteEditable, itemEl, category, itemId, url);
+            } catch (err) {
+                uploadIndicator.remove();
+                console.error('Erro ao colar imagem:', err);
+            }
+        }, true);
+
+        // ── Hover preview nas miniaturas dentro de .item-note ────────────
+        this._imgPreviewTimer = null;
+        this._activeImgPreview = null;
+
+        document.addEventListener('mouseenter', (ev) => {
+            const thumb = ev.target.closest('.note-img-thumb');
+            if (!thumb) return;
+            clearTimeout(this._imgPreviewTimer);
+            this._imgPreviewTimer = setTimeout(() => {
+                this._showNoteImgPreview(thumb);
+            }, 500);
+        }, true);
+
+        document.addEventListener('mouseleave', (ev) => {
+            const thumb = ev.target.closest('.note-img-thumb');
+            if (!thumb) return;
+            clearTimeout(this._imgPreviewTimer);
+            // Não fechar se mouse foi para o preview
+        }, true);
+
+        document.addEventListener('mouseenter', (ev) => {
+            if (ev.target.closest('.note-img-preview')) {
+                clearTimeout(this._imgPreviewTimer);
+            }
+        }, true);
+
+        document.addEventListener('mouseleave', (ev) => {
+            if (ev.target.closest('.note-img-preview')) {
+                this._hideNoteImgPreview();
+            }
+        }, true);
+    }
+
+    _insertImageInNote(noteEditable, itemEl, category, itemId, url) {
+        // Pegar texto atual e adicionar marcador de imagem no final
+        const currentText = this._getEditableText(noteEditable);
+        const imgMarker   = `[img:${url}]`;
+        const newText     = currentText ? `${currentText}\n${imgMarker}` : imgMarker;
+
+        // Atualizar conteúdo do editable
+        noteEditable.innerText = newText;
+
+        // Salvar imediatamente
+        this.saveInlineNote(itemEl, category, itemId, newText);
+    }
+
+    _showNoteImgPreview(thumb) {
+        this._hideNoteImgPreview(true);
+
+        const src = thumb.dataset.src || thumb.src;
+        if (!src) return;
+
+        const preview = document.createElement('div');
+        preview.className = 'note-img-preview';
+
+        const img = document.createElement('img');
+        img.src = src;
+        img.alt = 'Pré-visualização';
+        preview.appendChild(img);
+
+        document.body.appendChild(preview);
+        this._activeImgPreview = preview;
+
+        // Posicionar ao lado da miniatura
+        const rect   = thumb.getBoundingClientRect();
+        const margin = 8;
+
+        // Tentar posicionar à direita; se não couber, à esquerda
+        const previewW = 280;
+        const previewH = 200;
+        let left = rect.right + margin;
+        let top  = rect.top;
+
+        if (left + previewW > window.innerWidth - margin) {
+            left = rect.left - previewW - margin;
+        }
+        if (left < margin) left = margin;
+        if (top + previewH > window.innerHeight - margin) {
+            top = window.innerHeight - previewH - margin;
+        }
+        if (top < margin) top = margin;
+
+        preview.style.left = `${left}px`;
+        preview.style.top  = `${top}px`;
+    }
+
+    _hideNoteImgPreview(immediate = false) {
+        const prev = this._activeImgPreview;
+        if (!prev) return;
+        this._activeImgPreview = null;
+        clearTimeout(this._imgPreviewTimer);
+
+        if (immediate) {
+            prev.remove();
+            return;
+        }
+        prev.classList.add('note-img-preview--closing');
+        prev.addEventListener('animationend', () => prev.remove(), { once: true });
+        setTimeout(() => { if (prev.parentNode) prev.remove(); }, 200);
+    }
+
     // ── Weekbar Note Tooltip ──────────────────────────────────────────────
     _initWeekBarTooltips() {
         if (this._weekbarTooltipInited) return;
@@ -2257,6 +2421,8 @@ class HabitTrackerApp {
             
             const itemEl = document.createElement('div');
             itemEl.className = 'item';
+            itemEl.dataset.category = category;
+            itemEl.dataset.itemId   = item.id;
             // add status class to paint the whole item according to status
             const initialStatus = itemData.status || 'none';
             itemEl.classList.add(`status-${initialStatus}`);
@@ -2814,14 +2980,24 @@ class HabitTrackerApp {
     }
 
     // Build note HTML, rendering 🧠, 🚫 and ⏳ lines as colored status tags
+    // and [img:URL] markers as inline thumbnails
     _buildNoteHtml(text) {
         if (!text || !text.trim()) return '';
         const lines = text.split('\n');
-        const tagParts = [];   // tags flutuantes (🧠 🚫 ⏳) — vão primeiro no HTML
-        const textParts = [];  // linhas de texto normal
+        const tagParts  = [];   // tags flutuantes (🧠 🚫 ⏳) — vão primeiro no HTML
+        const textParts = [];   // linhas de texto normal e imagens
+        const imgRegex  = /^\[img:(https?:\/\/[^\]]+)\]$/;
+
         for (const line of lines) {
             const trimmed = line.trim();
-            if (trimmed.startsWith('🧠')) {
+            // Imagem colada: [img:URL]
+            const imgMatch = trimmed.match(imgRegex);
+            if (imgMatch) {
+                const src = imgMatch[1];
+                textParts.push(
+                    `<img class="note-img-thumb" src="${this._escapeHtml(src)}" data-src="${this._escapeHtml(src)}" alt="imagem" loading="lazy">`
+                );
+            } else if (trimmed.startsWith('🧠')) {
                 const content = trimmed.slice(2).trim();
                 tagParts.push(`<span class="status-note-tag status-note-tag--concluido">🧠 ${this._escapeHtml(content)}</span>`);
             } else if (trimmed.startsWith('🚫')) {
@@ -2838,8 +3014,9 @@ class HabitTrackerApp {
         }
         // Tags vêm primeiro no HTML para que o float:right funcione corretamente,
         // depois o texto normal com quebras de linha
-        const tagsHtml = tagParts.join('');
-        const textHtml = textParts.join('<br>');
+        const tagsHtml  = tagParts.join('');
+        // Imagens ficam em bloco separado (inline-block), texto com <br>
+        const textHtml  = textParts.join('<br>');
         return tagsHtml + textHtml;
     }
 

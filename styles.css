@@ -1725,6 +1725,77 @@ mark.tsf-highlight {
     display: none;
 }
 
+/* ── Imagem colada na nota: miniatura inline ──────────────────────── */
+.note-img-thumb {
+    display: inline-block;
+    width: 44px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid rgba(149, 211, 238, 0.25);
+    cursor: zoom-in;
+    vertical-align: middle;
+    margin: 2px 4px 2px 0;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+    background: rgba(1, 57, 114, 0.3);
+}
+.note-img-thumb:hover {
+    transform: scale(1.08);
+    border-color: rgba(149, 211, 238, 0.55);
+}
+
+/* Preview flutuante ao passar o mouse (0.5s delay via JS) */
+.note-img-preview {
+    position: fixed;
+    z-index: 7000;
+    max-width: 280px;
+    max-height: 240px;
+    background: rgba(6, 22, 40, 0.97);
+    border: 1px solid rgba(149, 211, 238, 0.22);
+    border-radius: 10px;
+    padding: 5px;
+    box-shadow: 0 10px 32px rgba(1, 57, 114, 0.55), 0 2px 8px rgba(0,0,0,0.4);
+    animation: noteImgPreviewIn 0.15s ease both;
+    pointer-events: auto;
+    overflow: hidden;
+}
+.note-img-preview img {
+    display: block;
+    max-width: 270px;
+    max-height: 230px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 6px;
+}
+.note-img-preview--closing {
+    animation: noteImgPreviewOut 0.12s ease forwards;
+}
+@keyframes noteImgPreviewIn {
+    from { opacity: 0; transform: scale(0.88); }
+    to   { opacity: 1; transform: scale(1); }
+}
+@keyframes noteImgPreviewOut {
+    from { opacity: 1; transform: scale(1); }
+    to   { opacity: 0; transform: scale(0.88); }
+}
+
+/* Indicador de upload em progresso */
+.note-img-upload-indicator {
+    display: inline-block;
+    font-size: 12px;
+    color: var(--accent, #95d3ee);
+    padding: 4px 8px;
+    margin: 4px 0;
+    background: rgba(149, 211, 238, 0.08);
+    border-radius: 6px;
+    animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.45; }
+}
+
 /* ── Status Note Tags (🧠 aprendizado / 🚫 bloqueado / ⏳ parcialmente) ── */
 .status-note-tag {
     display: inline-block;
