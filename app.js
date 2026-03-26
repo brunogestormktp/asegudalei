@@ -1722,11 +1722,17 @@ class HabitTrackerApp {
         const imgMarker   = `[img:${url}]`;
         const newText     = currentText ? `${currentText}\n${imgMarker}` : imgMarker;
 
-        // Atualizar conteúdo do editable
+        // Atualizar conteúdo do editable (texto cru com o marcador)
         noteEditable.innerText = newText;
 
-        // Salvar imediatamente
-        this.saveInlineNote(itemEl, category, itemId, newText);
+        // Salvar e depois sair do modo edição para que _updateNoteDisplay
+        // renderize o .item-note com a miniatura visível
+        this.saveInlineNote(itemEl, category, itemId, newText).then(() => {
+            // Breve timeout para garantir que _updateNoteDisplay já atualizou o DOM
+            setTimeout(() => {
+                this.exitCurrentEditMode(false); // false = já salvou acima
+            }, 50);
+        });
     }
 
     _showNoteImgPreview(thumb) {
@@ -2986,7 +2992,7 @@ class HabitTrackerApp {
         const lines = text.split('\n');
         const tagParts  = [];   // tags flutuantes (🧠 🚫 ⏳) — vão primeiro no HTML
         const textParts = [];   // linhas de texto normal e imagens
-        const imgRegex  = /^\[img:(https?:\/\/[^\]]+)\]$/;
+        const imgRegex  = /^\[img:((?:https?:\/\/|data:image\/)[^\]]+)\]$/;
 
         for (const line of lines) {
             const trimmed = line.trim();
