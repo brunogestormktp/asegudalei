@@ -1628,6 +1628,7 @@ class HabitTrackerApp {
         // State
         this._activeTooltip = null;
         this._tooltipHideTimer = null;
+        this._tooltipHoverTimer = null;  // delay antes de mostrar tooltip no desktop
         this._longPressTimer = null;
         this._tooltipSaveTimer = null;
 
@@ -1655,13 +1656,19 @@ class HabitTrackerApp {
             clearTimeout(this._tooltipHideTimer);
             // Se já temos tooltip aberto para outro bloco E textarea focada, não trocar
             if (this._activeTooltipBlock && this._activeTooltipBlock !== block && shouldKeepOpen()) return;
-            this._showWeekBarTooltip(block);
+            // Delay de 2.5s para não atrapalhar scroll entre demandas
+            clearTimeout(this._tooltipHoverTimer);
+            this._tooltipHoverTimer = setTimeout(() => {
+                this._showWeekBarTooltip(block);
+            }, 2500);
         }, true);
 
         document.addEventListener('mouseleave', (ev) => {
             if (isMobile()) return;
             const block = getBlock(ev.target);
             if (!block) return;
+            // Cancelar o delay de abertura se mouse saiu antes dos 2.5s
+            clearTimeout(this._tooltipHoverTimer);
             // Não fechar se textarea estiver com foco (usuário editando)
             if (shouldKeepOpen()) return;
             // Delay to allow mouse to enter the tooltip
@@ -1897,6 +1904,7 @@ class HabitTrackerApp {
         this._activeTooltip = null;
         this._activeTooltipBlock = null;
         clearTimeout(this._tooltipSaveTimer);
+        clearTimeout(this._tooltipHoverTimer);
 
         // Remover handler de click-outside (desktop)
         if (tip._desktopCloseHandler) {
