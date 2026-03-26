@@ -1656,11 +1656,11 @@ class HabitTrackerApp {
             clearTimeout(this._tooltipHideTimer);
             // Se já temos tooltip aberto para outro bloco E textarea focada, não trocar
             if (this._activeTooltipBlock && this._activeTooltipBlock !== block && shouldKeepOpen()) return;
-            // Delay de 2.5s para não atrapalhar scroll entre demandas
+            // Delay de 0.5s para não atrapalhar scroll entre demandas
             clearTimeout(this._tooltipHoverTimer);
             this._tooltipHoverTimer = setTimeout(() => {
                 this._showWeekBarTooltip(block);
-            }, 2500);
+            }, 500);
         }, true);
 
         document.addEventListener('mouseleave', (ev) => {
