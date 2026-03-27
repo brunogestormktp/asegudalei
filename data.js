@@ -11,7 +11,8 @@ const APP_DATA = {
         { id: 'marcelo', name: '✅ Marcelo D Telles' },
         { id: 'ferny', name: '✅ Ferny Boutique' },
         { id: 'premium', name: '✅ Premium' },
-        { id: 'lia', name: '✅ Lia toss' }
+        { id: 'lia', name: '✅ Lia toss' },
+        { id: 'aa-flooring', name: '✅ A&A flooring' }
     ],
     categorias: [
         { id: 'empresa', name: '🏢 Empresa' },
@@ -28,12 +29,12 @@ const APP_DATA = {
         { id: 'mkt-usa', name: '🇺🇸 Mkt Contractors - USA' }
     ],
     atividades: [
-        { id: 'video-wbs', name: '📹 Produzir Video Wbs' },
-        { id: 'website', name: '🌐 Contruir website' },
-        { id: 'estudo-comunidade', name: '👥 Estudo comunidade' },
-        { id: 'venda-curso', name: '💵 Venda de Curso' },
-        { id: 'estudo-youtube', name: '🔴 Estudo Youtube' },
-        { id: 'selling-highlevel', name: '⬆️ Selling in High Level' },
+        { id: 'oratoria', name: '💼 Oratória' },
+        { id: 'meditacao', name: '🧘 Meditação' },
+        { id: 'aleatorios', name: '� Segunda lei App' },
+        { id: 'organizar', name: '🗂️ Organizar algo' },
+        { id: 'segunda-lei-conteudo', name: '🪐 A segunda lei (CONTEÚDO)' },
+        { id: 'networking', name: '🗣️ Networking Down & Up' },
         { id: 'ingles', name: '🇺🇸 Ingles' },
         { id: 'programacao', name: '💻 Programação/Cyber' },
         { id: 'mais-dinheiro', name: '🤑 Mais Dinheiro' },
