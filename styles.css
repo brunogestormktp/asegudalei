@@ -2,6 +2,8 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    /* Prevenir double-tap zoom em todos os elementos (iOS/Android) */
+    touch-action: manipulation;
 }
 
 :root {
