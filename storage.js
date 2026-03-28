@@ -434,9 +434,8 @@ const StorageManager = {
             localStorage.removeItem('_aprendizados_backup_uid');
         }
 
-        // Caso extremo: dados sem nenhuma tag de proprietário (legacy/sem tag).
-        // Nesses casos NÃO limpamos — são dados que existiam antes desta proteção.
-        // Eles serão descartados pelo deepMerge se conflitarem com dados do Supabase.
+        // Dados sem tag de proprietário (legacy/sem tag) não são limpos aqui.
+        // O forceSyncFromSupabase os descarta quando há dados do usuário no Supabase.
 
         if (foundForeign) {
             console.warn(`🔒 [SEGURANÇA] Dados de outro usuário removidos do localStorage antes do login de ${newUserId}`);
@@ -466,17 +465,33 @@ const StorageManager = {
                     .single();
 
                 if (!error && remoteData?.data) {
-                    // Ler dados locais atuais — agora garantidamente sem dados de outra conta
-                    const localRaw = localStorage.getItem(this.STORAGE_KEY);
-                    const local = localRaw ? JSON.parse(localRaw) : {};
+                    // 🔒 SEGURANÇA: só reutilizar dados locais se tiverem tag confirmada deste usuário.
+                    // Dados sem tag (legacy de sessão anterior sem tagging) são descartados aqui —
+                    // podem pertencer a qualquer pessoa. O Supabase é a fonte autoritativa.
+                    const localOwnerUid = localStorage.getItem('_data_backup_uid');
+                    let local = {};
 
-                    // Incluir _settings local no objeto base para o deepMerge comparar corretamente
-                    try {
-                        const localSettingsRaw = localStorage.getItem(this.SETTINGS_KEY);
-                        if (localSettingsRaw && !local['_settings']) {
-                            local['_settings'] = JSON.parse(localSettingsRaw);
+                    if (localOwnerUid === userId) {
+                        // Tag confirmada: pode mesclar com segurança
+                        const localRaw = localStorage.getItem(this.STORAGE_KEY);
+                        local = localRaw ? JSON.parse(localRaw) : {};
+
+                        try {
+                            const localSettingsRaw = localStorage.getItem(this.SETTINGS_KEY);
+                            if (localSettingsRaw && !local['_settings']) {
+                                local['_settings'] = JSON.parse(localSettingsRaw);
+                            }
+                        } catch(e) {}
+                    } else {
+                        // Sem tag ou tag de outro usuário (que _clearForeignLocalData não limpou
+                        // por não ter tag) → descartar dados locais, usar só o Supabase
+                        if (!localOwnerUid) {
+                            console.warn('🔒 [SEGURANÇA] Dados locais sem tag de proprietário descartados — usando Supabase como fonte única');
+                            localStorage.removeItem(this.STORAGE_KEY);
+                            localStorage.removeItem(this.SETTINGS_KEY);
+                            localStorage.removeItem('aprendizadosData');
                         }
-                    } catch(e) {}
+                    }
 
                     // Remover _lastDeviceId do remoto antes de mesclar (não é dado do app)
                     const { _lastDeviceId: _ignored, ...cleanRemote } = remoteData.data;
