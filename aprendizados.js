@@ -10,10 +10,45 @@ const Aprendizados = (() => {
     // ─── Estado de navegação ─────────────────────────────────────────
     const nav = {
         level: 'folders',       // 'folders' | 'notes' | 'editor'
-        category: null,         // 'clientes' | 'categorias' | 'atividades'
+        category: null,         // 'clientes' | 'categorias' | 'atividades' | '__recent__'
         itemId: null,
         noteId: null,
     };
+
+    const NAV_KEY = '_aprendizadosNav';
+
+    function saveNav() {
+        try {
+            localStorage.setItem(NAV_KEY, JSON.stringify({
+                level:    nav.level,
+                category: nav.category,
+                itemId:   nav.itemId,
+                // noteId não persiste — usuário volta à lista de notas, não direto ao editor
+            }));
+        } catch(e) {}
+    }
+
+    function restoreNav() {
+        try {
+            const raw = localStorage.getItem(NAV_KEY);
+            if (raw) {
+                const saved = JSON.parse(raw);
+                nav.level    = saved.level    || 'notes';
+                nav.category = saved.category || '__recent__';
+                nav.itemId   = saved.itemId   || null;
+                nav.noteId   = null; // nunca restaurar diretamente no editor
+            } else {
+                // Primeiro acesso: abrir em Recentes
+                nav.level    = 'notes';
+                nav.category = '__recent__';
+                nav.itemId   = null;
+                nav.noteId   = null;
+            }
+        } catch(e) {
+            nav.level    = 'notes';
+            nav.category = '__recent__';
+        }
+    }
 
     let _syncTimer = null;
     let _noteSaveTimer = null;
@@ -26,11 +61,23 @@ const Aprendizados = (() => {
         atividades: '#4a9cc4',
     };
 
-    const CATEGORY_LABELS = {
-        clientes:   '👥 Clientes',
-        categorias: '🏢 Empresa',
-        atividades: '👤 Pessoal',
-    };
+    // Dinâmico: reflete renomeações feitas na aba Configurações
+    function getCategoryLabels() {
+        const defaults = {
+            clientes:   '👥 Clientes',
+            categorias: '🏢 Empresa',
+            atividades: '👤 Pessoal',
+        };
+        try {
+            const s = (typeof StorageManager !== 'undefined') ? StorageManager.getSettings() : null;
+            if (!s?.categoryLabels) return defaults;
+            return {
+                clientes:   s.categoryLabels.clientes   || defaults.clientes,
+                categorias: s.categoryLabels.categorias || defaults.categorias,
+                atividades: s.categoryLabels.atividades || defaults.atividades,
+            };
+        } catch(e) { return defaults; }
+    }
 
     // ─── Helpers ─────────────────────────────────────────────────────
     function nowISO() { return new Date().toISOString(); }
@@ -264,14 +311,31 @@ const Aprendizados = (() => {
     function renderFolders() {
         const el = document.getElementById('aprendFolderList');
         if (!el) return;
+
+        // Pasta especial "Recentes"
+        const totalNotes  = countAllNotes();
+        const isRecActive = nav.category === '__recent__';
+        const recentHtml  = `
+            <div class="aprend-folder-row${isRecActive ? ' active' : ''}" data-category="__recent__">
+                <div class="aprend-folder-icon" style="color:#b0c4de">
+                    🕐
+                </div>
+                <div class="aprend-folder-info">
+                    <span class="aprend-folder-name">Recentes</span>
+                    ${totalNotes > 0 ? `<span class="aprend-folder-count">${totalNotes}</span>` : ''}
+                </div>
+                <svg class="aprend-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b0c4de" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <div class="aprend-folder-sep"></div>`;
+
         const groups = [
             { key: 'clientes',   icon: '👥' },
             { key: 'categorias', icon: '🏢' },
             { key: 'atividades', icon: '👤' },
         ];
-        el.innerHTML = groups.map(({ key, icon }) => {
+        const categoriesHtml = groups.map(({ key, icon }) => {
             const count = countCategoryNotes(key);
-            const label = CATEGORY_LABELS[key].replace(/^\S+\s/, '');
+            const label = getCategoryLabels()[key].replace(/^\S+\s/, '');
             const color = CATEGORY_COLORS[key];
             const isActive = nav.category === key;
             return `
@@ -290,14 +354,23 @@ const Aprendizados = (() => {
             <div class="aprend-folder-sep"></div>`;
         }).join('');
 
+        el.innerHTML = recentHtml + categoriesHtml;
+
         el.querySelectorAll('.aprend-folder-row').forEach(row => {
             row.addEventListener('click', () => {
                 nav.category = row.dataset.category;
                 nav.itemId   = null;
                 nav.noteId   = null;
-                renderFolders();
-                renderSubfolders();
-                navigateTo('notes');
+                saveNav();
+                if (nav.category === '__recent__') {
+                    renderFolders();
+                    renderRecentNotes();
+                    navigateTo('notes');
+                } else {
+                    renderFolders();
+                    renderSubfolders();
+                    navigateTo('notes');
+                }
             });
         });
     }
@@ -319,7 +392,7 @@ const Aprendizados = (() => {
         }
 
         // Mostrar subpastas (itens)
-        if (title) title.textContent = CATEGORY_LABELS[nav.category].replace(/^\S+\s/, '');
+        if (title) title.textContent = getCategoryLabels()[nav.category].replace(/^\S+\s/, '');
         if (btnNew) btnNew.classList.add('hidden');
         const color = CATEGORY_COLORS[nav.category];
         const items = APP_DATA[nav.category] || [];
@@ -345,6 +418,7 @@ const Aprendizados = (() => {
         el.querySelectorAll('.aprend-subfolder-row').forEach(row => {
             row.addEventListener('click', () => {
                 nav.itemId = row.dataset.itemId;
+                saveNav();
                 const item = (APP_DATA[nav.category] || []).find(i => i.id === nav.itemId);
                 if (title && item) title.textContent = item.name.replace(/^✅\s*/, '');
                 if (btnNew) btnNew.classList.remove('hidden');
@@ -371,12 +445,14 @@ const Aprendizados = (() => {
             const dateStr   = formatDate(note.updatedAt);
             const hasAttach = (note.attachments || []).length > 0;
             const isSelected = nav.noteId === note.id;
+            const isAprend  = note.type === 'aprendizado';
             return `
-            <div class="aprend-note-card${isSelected ? ' selected' : ''}" data-note-id="${note.id}">
+            <div class="aprend-note-card${isSelected ? ' selected' : ''}${isAprend ? ' aprend-note-card--aprendizado' : ''}" data-note-id="${note.id}">
                 <div class="aprend-note-card-top">
                     <span class="aprend-note-title">${escHtml(titleStr)}</span>
                     <span class="aprend-note-date">${dateStr}</span>
                 </div>
+                ${isAprend ? '<div class="aprend-type-badge">🧠 aprendizado</div>' : ''}
                 <div class="aprend-note-preview">${escHtml(preview)}${hasAttach ? ' 📎' : ''}</div>
             </div>`;
         }).join('');
@@ -385,6 +461,87 @@ const Aprendizados = (() => {
             card.addEventListener('click', () => {
                 _flushNote();
                 nav.noteId = card.dataset.noteId;
+                saveNav();
+                renderNotesList();
+                renderEditor();
+                navigateTo('editor');
+            });
+        });
+    }
+
+    // ─── Conta todas as notas do app ─────────────────────────────────
+    function countAllNotes() {
+        const all = loadAll();
+        let total = 0;
+        ['clientes', 'categorias', 'atividades'].forEach(cat => {
+            (APP_DATA[cat] || []).forEach(item => {
+                total += normalizeToNotes(all[cat]?.[item.id]).length;
+            });
+        });
+        return total;
+    }
+
+    // ─── RENDER: Notas Recentes (todas as categorias, mais recente primeiro) ─
+    function renderRecentNotes() {
+        const el    = document.getElementById('aprendNotesList');
+        const title = document.getElementById('aprendNotesTitle');
+        const btnNew = document.getElementById('aprendBtnNewNote');
+        if (!el) return;
+
+        if (title) title.textContent = 'Recentes';
+        if (btnNew) btnNew.classList.add('hidden');
+
+        const all  = loadAll();
+        const hits = [];
+
+        ['clientes', 'categorias', 'atividades'].forEach(cat => {
+            (APP_DATA[cat] || []).forEach(item => {
+                normalizeToNotes(all[cat]?.[item.id]).forEach(note => {
+                    hits.push({ note, cat, itemId: item.id, itemName: item.name });
+                });
+            });
+        });
+
+        // Ordenar por updatedAt desc
+        hits.sort((a, b) => {
+            const ta = a.note.updatedAt ? new Date(a.note.updatedAt).getTime() : 0;
+            const tb = b.note.updatedAt ? new Date(b.note.updatedAt).getTime() : 0;
+            return tb - ta;
+        });
+
+        if (!hits.length) {
+            el.innerHTML = '<div class="aprend-notes-empty">Nenhuma nota ainda.</div>';
+            return;
+        }
+
+        el.innerHTML = hits.map(({ note, cat, itemId, itemName }) => {
+            const cleanName = itemName.replace(/^✅\s*/, '');
+            const catLabel  = getCategoryLabels()[cat].replace(/^\S+\s/, '');
+            const preview   = getPreview(note.content);
+            const dateStr   = formatRelative(note.updatedAt);
+            const hasAttach = (note.attachments || []).length > 0;
+            const isAprend  = note.type === 'aprendizado';
+            return `
+            <div class="aprend-note-card${isAprend ? ' aprend-note-card--aprendizado' : ''}" data-note-id="${escHtml(note.id)}" data-cat="${cat}" data-item-id="${escHtml(itemId)}">
+                <div class="aprend-note-card-top">
+                    <span class="aprend-note-title">${escHtml(note.title || 'Sem título')}</span>
+                    <span class="aprend-note-date">${dateStr}</span>
+                </div>
+                <div class="aprend-note-breadcrumb" style="font-size:0.7rem;opacity:0.55;margin:1px 0 3px;">${escHtml(catLabel)} › ${escHtml(cleanName)}</div>
+                ${isAprend ? '<div class="aprend-type-badge">🧠 aprendizado</div>' : ''}
+                <div class="aprend-note-preview">${escHtml(preview)}${hasAttach ? ' 📎' : ''}</div>
+            </div>`;
+        }).join('');
+
+        el.querySelectorAll('.aprend-note-card').forEach(card => {
+            card.addEventListener('click', () => {
+                _flushNote();
+                nav.category = card.dataset.cat;
+                nav.itemId   = card.dataset.itemId;
+                nav.noteId   = card.dataset.noteId;
+                saveNav();
+                renderFolders();
+                renderSubfolders();
                 renderNotesList();
                 renderEditor();
                 navigateTo('editor');
@@ -972,7 +1129,7 @@ const Aprendizados = (() => {
         const hits = [];
         const all = loadAll();
 
-        Object.keys(CATEGORY_LABELS).forEach(cat => {
+        Object.keys(getCategoryLabels()).forEach(cat => {
             (APP_DATA[cat] || []).forEach(item => {
                 normalizeToNotes(all[cat]?.[item.id]).forEach(note => {
                     const inTitle   = (note.title || '').toLowerCase().includes(termLow);
@@ -996,7 +1153,7 @@ const Aprendizados = (() => {
 
         resultsEl.innerHTML = hits.map((h, i) => {
             const cleanName = h.item.name.replace(/^✅\s*/, '');
-            const catLabel  = CATEGORY_LABELS[h.cat].replace(/^\S+\s/, '');
+            const catLabel  = getCategoryLabels()[h.cat].replace(/^\S+\s/, '');
             return `
             <div class="aprend-search-result" data-idx="${i}">
                 <div class="aprend-search-result-path">${escHtml(catLabel)} › ${escHtml(cleanName)}</div>
@@ -1067,7 +1224,12 @@ const Aprendizados = (() => {
 
     // ─── Init ─────────────────────────────────────────────────────────
     function init() {
+        restoreNav();
         renderFolders();
+        if (nav.category === '__recent__') {
+            renderRecentNotes();
+            navigateTo('notes');
+        }
         _applyLayout();
 
         document.getElementById('aprendSearch')?.addEventListener('input', (e) => renderSearch(e.target.value));
@@ -1104,15 +1266,25 @@ const Aprendizados = (() => {
 
         syncFromSupabase().then(() => {
             renderFolders();
-            if (nav.itemId) renderNotesList();
+            if (nav.category === '__recent__') {
+                renderRecentNotes();
+            } else if (nav.itemId) {
+                renderNotesList();
+            }
         }).catch(() => {});
     }
 
     function onShow() {
+        restoreNav();
         renderFolders();
-        if (nav.category) renderSubfolders();
-        if (nav.itemId)   renderNotesList();
-        if (nav.noteId)   renderEditor();
+        if (nav.category === '__recent__') {
+            renderRecentNotes();
+            navigateTo('notes');
+        } else {
+            if (nav.category) renderSubfolders();
+            if (nav.itemId)   renderNotesList();
+            if (nav.noteId)   renderEditor();
+        }
         _applyLayout();
     }
 
@@ -1135,8 +1307,9 @@ const Aprendizados = (() => {
         if (!text || !text.trim()) return;
         const note = {
             id: uuid(),
-            title: '✓ ' + (itemName || itemId),
+            title: '🧠 ' + (itemName || itemId),
             content: text.trim(),
+            type: 'aprendizado',
             checkedLines: {},
             attachments: [],
             createdAt: nowISO(),

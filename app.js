@@ -37,6 +37,14 @@ class HabitTrackerApp {
         this._initNoteImagePaste();
         this._syncHeaderHeight();
         window.addEventListener('resize', () => this._syncHeaderHeight());
+
+        // Browser back/forward between tabs
+        history.replaceState({ view: 'today' }, '', '#today');
+        window.addEventListener('popstate', async (e) => {
+            const view = e.state?.view || 'today';
+            await this.showView(view, { fromPopState: true });
+        });
+
         // Aplicar configurações salvas antes do primeiro render
         this.applySettings();
         this.renderTodayView();
@@ -695,6 +703,8 @@ class HabitTrackerApp {
                 document.querySelectorAll('.btn-period').forEach(b => b.classList.remove('active'));
                 e.currentTarget.classList.add('active');
                 const period = e.currentTarget.dataset.period;
+                this._reportsScrollTop = 0; // reset scroll when changing period
+                window.scrollTo(0, 0);
                 await this.renderReports(period);
             });
         });
@@ -727,6 +737,9 @@ class HabitTrackerApp {
                 hSearchInput.value = '';
                 this._historySearchQuery = '';
                 hSearchClear.style.display = 'none';
+                // Sair do modo range ao fechar a busca
+                this._historyDateRange = null;
+                this._updateHistoryDateLabel();
                 this._reRenderHistory();
             }
         });
@@ -734,6 +747,11 @@ class HabitTrackerApp {
         hSearchInput.addEventListener('input', () => {
             this._historySearchQuery = hSearchInput.value.trim().toLowerCase();
             hSearchClear.style.display = this._historySearchQuery ? 'flex' : 'none';
+            // Se esvaziou a busca, sair do modo range (volta ao dia normal)
+            if (!this._historySearchQuery) {
+                this._historyDateRange = null;
+                this._updateHistoryDateLabel();
+            }
             this._reRenderHistory();
         });
 
@@ -741,6 +759,9 @@ class HabitTrackerApp {
             hSearchInput.value = '';
             this._historySearchQuery = '';
             hSearchClear.style.display = 'none';
+            // Sair do modo range ao limpar a busca — volta ao dia normal
+            this._historyDateRange = null;
+            this._updateHistoryDateLabel();
             hSearchInput.focus();
             this._reRenderHistory();
         });
@@ -751,6 +772,9 @@ class HabitTrackerApp {
                 hSearchInput.value = '';
                 this._historySearchQuery = '';
                 hSearchClear.style.display = 'none';
+                // Sair do modo range ao fechar com Escape
+                this._historyDateRange = null;
+                this._updateHistoryDateLabel();
                 this._reRenderHistory();
             }
         });
@@ -1391,19 +1415,27 @@ class HabitTrackerApp {
         }, 0);
     }
 
-    async showView(view) {
+    async showView(view, opts = {}) {
         // Salvar nota de aprendizado se estava nessa aba
         if (this.currentView === 'aprendizados' && typeof Aprendizados !== 'undefined') {
             Aprendizados.onHide();
         }
 
-        // Salvar posição de scroll da aba Hoje antes de sair
+        // Salvar posição de scroll antes de sair
         const mainContent = document.getElementById('mainContent');
         if (this.currentView === 'today') {
             this._todayScrollTop = window.scrollY;
+        } else if (this.currentView === 'reports') {
+            this._reportsScrollTop = window.scrollY;
         }
 
         this.currentView = view;
+
+        // Browser history — push a new state so the back button works between tabs
+        if (!opts.fromPopState) {
+            history.pushState({ view }, '', '#' + view);
+        }
+
         document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
         
         // Update active button state
@@ -1434,7 +1466,7 @@ class HabitTrackerApp {
             document.getElementById('reportsView').classList.remove('hidden');
             document.getElementById('btnReports').classList.add('active');
             window.scrollTo(0, 0);
-            await this.renderReports('week');
+            await this.renderReports(this.currentReportPeriod || 'week');
         } else if (view === 'aprendizados') {
             document.getElementById('aprendizadosView').classList.remove('hidden');
             document.getElementById('btnAprendizados').classList.add('active');
@@ -1772,6 +1804,13 @@ class HabitTrackerApp {
     _onItemDelete(cat, itemId, isCustom) {
         const s = StorageManager.getSettings();
 
+        // Preserve item name for historical report display
+        const itemToDelete = APP_DATA[cat]?.find(i => i.id === itemId);
+        if (itemToDelete) {
+            if (!s.deletedItemNames) s.deletedItemNames = {};
+            s.deletedItemNames[itemId] = itemToDelete.name;
+        }
+
         if (isCustom) {
             // Item customizado: remover de customItems
             if (s.customItems && s.customItems[cat]) {
@@ -1818,6 +1857,8 @@ class HabitTrackerApp {
 
     /** Chamado quando o usuário muda o rótulo de uma categoria */
     _onCategoryLabelChange(cat, newLabel) {
+        if (typeof newLabel !== 'string') return;
+        newLabel = newLabel.slice(0, 50); // máx 50 chars
         const s = StorageManager.getSettings();
         if (!s.categoryLabels) s.categoryLabels = {};
         s.categoryLabels[cat] = newLabel;
@@ -1827,6 +1868,8 @@ class HabitTrackerApp {
 
     /** Chamado quando o usuário muda o nome de um item */
     _onItemNameChange(cat, itemId, newName) {
+        if (typeof newName !== 'string') return;
+        newName = newName.slice(0, 100); // máx 100 chars
         const s = StorageManager.getSettings();
         if (!s.itemNames) s.itemNames = {};
         if (!s.itemNames[cat]) s.itemNames[cat] = {};
@@ -1866,6 +1909,7 @@ class HabitTrackerApp {
     }
 
     changeHistoryDate(days) {
+        this._historyDateRange = null; // exit range mode when navigating days
         if (!this.historyDate) {
             this.historyDate = new Date();
             this.historyDate.setHours(12, 0, 0, 0);
@@ -1885,7 +1929,10 @@ class HabitTrackerApp {
 
     _updateHistoryDateLabel() {
         const el = document.getElementById('historyCurrentDate');
-        if (el && this.historyDate) {
+        if (!el) return;
+        if (this._historyDateRange) {
+            el.textContent = this._historyDateRange.label || 'Semana';
+        } else if (this.historyDate) {
             el.textContent = this.formatDate(this.historyDate);
         }
     }
@@ -2942,7 +2989,7 @@ class HabitTrackerApp {
             const hasLinksInitially = !!(itemData.links && itemData.links.length > 0);
             const headerHtml = `
                 <div class="item-header">
-                    <span class="item-name" tabindex="0">${item.name}</span>
+                    <span class="item-name" tabindex="0">${this._escapeHtml(item.name)}</span>
                     <div style="display:flex;gap:0.5rem;align-items:center;">
                         <button class="btn-google-search" title="Pesquisar nota no Google" aria-label="Pesquisar no Google" style="display:${hasNoteInitially ? 'inline-flex' : 'none'};align-items:center;justify-content:center;padding:2px 4px;background:none;border:none;cursor:pointer;border-radius:4px;opacity:0.75;" tabindex="-1"><img src="https://www.google.com/favicon.ico" alt="Google" width="14" height="14" style="display:block;pointer-events:none;"></button>
                         <button class="btn-link-item${hasLinksInitially ? ' has-links' : ''}" title="Vincular a outro item" aria-label="Vincular item">🔗</button>
@@ -3754,12 +3801,96 @@ class HabitTrackerApp {
         if (googleBtn) googleBtn.style.display = 'inline-flex';
     }
 
+    /** Renders history for a date range (used when navigating from demand cards) */
+    async _renderHistoryRange(container, searchQuery, statusFilter) {
+        const { start, end } = this._historyDateRange;
+        const statusColors = {
+            'concluido': '#22c55e', 'concluido-ongoing': '#22c55e', 'em-andamento': '#eab308',
+            'nao-feito': '#ef4444', 'bloqueado': 'rgba(239,68,68,0.6)', 'aguardando': '#95d3ee',
+            'parcialmente': '#f97316', 'prioridade': '#a855f7', 'pular': 'rgba(255,255,255,0.25)', 'none': 'transparent'
+        };
+        const statusLabels = {
+            'concluido': 'Concluído', 'concluido-ongoing': 'Concluído', 'em-andamento': 'Em Andamento',
+            'nao-feito': 'Não Feito', 'bloqueado': 'Bloqueado', 'aguardando': 'Aguardando',
+            'parcialmente': 'Parcialmente', 'prioridade': 'Prioridade', 'pular': 'Pulado', 'none': '—'
+        };
+        const categoryConfig = [
+            { key: 'clientes',   emoji: '👥', label: 'CLIENTES',  color: '#95d3ee' },
+            { key: 'categorias', emoji: '🏢', label: 'EMPRESA',   color: '#f59e0b' },
+            { key: 'atividades', emoji: '👤', label: 'PESSOAL',   color: '#a78bfa' }
+        ];
+
+        const current = new Date(start);
+        current.setHours(12, 0, 0, 0);
+        const endLimit = new Date(end);
+        endLimit.setHours(23, 59, 59, 999);
+        let hasAny = false;
+
+        while (current <= endLimit) {
+            const dateStr = this.getDateString(current);
+            const dayData = await StorageManager.getDateData(dateStr);
+            const dayOfWeek = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'][current.getDay()];
+            const dayNum = current.getDate();
+            const month = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][current.getMonth()];
+
+            const rows = [];
+            for (const cat of categoryConfig) {
+                const catRawData = dayData[cat.key] || {};
+                const catItemDefs = APP_DATA[cat.key] || [];
+                for (const itemDef of catItemDefs) {
+                    if (searchQuery && !itemDef.name.toLowerCase().includes(searchQuery)) continue;
+                    const rawItem = catRawData[itemDef.id];
+                    const status = rawItem ? (typeof rawItem === 'string' ? rawItem : rawItem.status || 'none') : 'none';
+                    const note = rawItem ? (typeof rawItem === 'string' ? '' : rawItem.note || '') : '';
+                    if (statusFilter !== 'all') {
+                        if (statusFilter === 'none' && status !== 'none') continue;
+                        else if (statusFilter === 'sem-nota' && note.trim()) continue;
+                        else if (statusFilter !== 'none' && statusFilter !== 'sem-nota' &&
+                                 status !== statusFilter && !(statusFilter === 'concluido' && status === 'concluido-ongoing')) continue;
+                    }
+                    const color = statusColors[status] || 'transparent';
+                    const label = statusLabels[status] || status;
+                    rows.push(`<div class="hs-row" data-status="${status}">
+                        <span class="hs-status-dot" style="background:${color}"></span>
+                        <span class="hs-item-name">${itemDef.name}</span>
+                        <span class="hs-status-label" style="color:${color}">${label}</span>
+                        ${note ? `<span class="hs-note">${note}</span>` : ''}
+                    </div>`);
+                }
+            }
+
+            if (rows.length > 0) {
+                hasAny = true;
+                const dayHeader = document.createElement('div');
+                dayHeader.className = 'hs-day-header';
+                dayHeader.innerHTML = `<span class="hs-day-name">${dayOfWeek}</span><span class="hs-day-date">${dayNum} de ${month}</span>`;
+                container.appendChild(dayHeader);
+                const section = document.createElement('div');
+                section.className = 'hs-category-section';
+                section.innerHTML = rows.join('');
+                container.appendChild(section);
+            }
+
+            current.setDate(current.getDate() + 1);
+        }
+
+        if (!hasAny) {
+            container.innerHTML = '<div class="hs-empty" style="padding:2rem;text-align:center;opacity:0.5">Nenhum registro encontrado neste período.</div>';
+        }
+    }
+
     async renderHistoryAsSpreadsheet(dateStr) {
         const container = document.getElementById('historyContent');
         const statusFilter = this._activeHistoryFilter || 'all';
         const searchQuery  = (this._historySearchQuery || '').toLowerCase().trim();
 
         container.innerHTML = '';
+
+        // Range mode: show multiple days for a specific demand item
+        if (this._historyDateRange) {
+            await this._renderHistoryRange(container, searchQuery, statusFilter);
+            return;
+        }
 
         const date = new Date(dateStr + 'T12:00:00');
         const dayData = await StorageManager.getDateData(dateStr);
@@ -4318,154 +4449,592 @@ class HabitTrackerApp {
     async renderReports(period) {
         this.currentReportPeriod = period;
         const container = document.getElementById('reportsContent');
-        
-        if (!container) {
-            console.error('reportsContent container not found!');
-            return;
-        }
-        
-        console.log('Rendering reports for period:', period);
-        
-        let startDate = new Date();
+        if (!container) return;
+
+        // Show loading
+        container.innerHTML = '<div class="reports-loading">⏳ Carregando relatório...</div>';
+
+        // Calculate date range for charts and stats
         const endDate = new Date();
-        
-        switch(period) {
-            case 'week':
-                startDate.setDate(startDate.getDate() - 7);
-                break;
-            case 'month':
-                startDate.setMonth(startDate.getMonth() - 1);
-                break;
-            case 'year':
-                startDate.setFullYear(startDate.getFullYear() - 1);
-                break;
-            case 'all':
-                startDate = new Date(2020, 0, 1);
-                break;
+        endDate.setHours(23, 59, 59, 999);
+        let startDate = new Date();
+        switch (period) {
+            case 'week':  startDate.setDate(startDate.getDate() - 7); break;
+            case 'month': startDate.setMonth(startDate.getMonth() - 1); break;
+            case 'year':  startDate.setFullYear(startDate.getFullYear() - 1); break;
+            case 'all':   startDate = new Date(2020, 0, 1); break;
+        }
+        startDate.setHours(0, 0, 0, 0);
+
+        // Fetch all data for the period in one shot
+        const rangeData = await StorageManager.getDateRangeData(startDate, endDate);
+        const today = new Date();
+        const todayStr = this.getDateString(today);
+        // Always fetch today directly to avoid any timezone/range edge cases
+        const todayDayData = await StorageManager.getDateData(todayStr);
+
+        // Build status squares data depending on period
+        let squaresData, squaresLabel;
+        if (period === 'week') {
+            squaresData = this._buildSquaresFromAppData(todayDayData);
+            squaresLabel = 'Hoje';
+        } else if (period === 'month') {
+            const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+            monthStart.setHours(0, 0, 0, 0);
+            squaresData = this._buildSquaresFromRangeData(rangeData, monthStart, today);
+            squaresLabel = 'Este Mês';
+        } else {
+            const yearStart = new Date(today.getFullYear(), 0, 1);
+            yearStart.setHours(0, 0, 0, 0);
+            squaresData = this._buildSquaresFromRangeData(rangeData, yearStart, today);
+            squaresLabel = 'Este Ano';
         }
 
-        const stats = await StorageManager.calculateStats(startDate, endDate);
-        
-        // Ensure stats have default values
-        if (!stats.overall.completionRate) stats.overall.completionRate = 0;
-        if (!stats.totalDays) stats.totalDays = 0;
-        
-        // Create charts section first
+        // Today's completion progress (always vs full APP_DATA)
+        const totalItems = APP_DATA.clientes.length + APP_DATA.categorias.length + APP_DATA.atividades.length;
+        let todayCompleted = 0;
+        for (const cat of ['clientes', 'categorias', 'atividades']) {
+            for (const item of APP_DATA[cat]) {
+                const raw = todayDayData[cat]?.[item.id];
+                const s = (typeof raw === 'string' ? raw : raw?.status) || 'none';
+                if (s === 'concluido' || s === 'concluido-ongoing') todayCompleted++;
+            }
+        }
+
+        // Total shown in squares label = sum of the 5 buckets (excludes pular/prioridade)
+        const squaresTotal = Object.values(squaresData).reduce((acc, arr) => acc + arr.length, 0);
+
+        // Build HTML
         let html = `
             <div class="charts-section">
                 <div class="charts-grid">
                     <div class="chart-container">
                         <h3>Desempenho por Status</h3>
-                        <div class="chart-wrapper">
-                            <canvas id="performanceChart"></canvas>
-                        </div>
+                        <div class="chart-wrapper"><canvas id="performanceChart"></canvas></div>
                     </div>
                     <div class="chart-container">
                         <h3>Comparativo por Grupo</h3>
-                        <div class="chart-wrapper">
-                            <canvas id="groupChart"></canvas>
-                        </div>
+                        <div class="chart-wrapper"><canvas id="groupChart"></canvas></div>
                     </div>
                 </div>
-            </div>
-        `;
-        
-        html += `
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <h4>Taxa de Conclusão Geral</h4>
-                    <div class="stat-value">${stats.overall.completionRate}%</div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${stats.overall.completionRate}%"></div>
-                    </div>
-                    <div class="stat-label">${stats.overall.completed} de ${stats.overall.total - stats.overall.skipped} tarefas</div>
-                </div>
-                
-                <div class="stat-card">
-                    <h4>Dias Registrados</h4>
-                    <div class="stat-value">${stats.totalDays}</div>
-                    <div class="stat-label">Dias com atividades</div>
-                </div>
-                
-                <div class="stat-card">
-                    <h4>Total Concluído</h4>
-                    <div class="stat-value">${stats.overall.completed}</div>
-                    <div class="stat-label">Tarefas finalizadas</div>
-                </div>
-                
-                <div class="stat-card">
-                    <h4>Em Andamento</h4>
-                    <div class="stat-value">${stats.overall.inProgress}</div>
-                    <div class="stat-label">Tarefas em progresso</div>
-                </div>
-            </div>
-        `;
+            </div>`;
 
-        // Category breakdown
-        html += '<div class="category-stats">';
-        html += '<h4>📊 Desempenho por Categoria</h4>';
-        
-        const categoryNames = {
-            'clientes': '👥 Clientes',
-            'categorias': '🗂️ Categorias',
-            'atividades': '🎯 Atividades'
-        };
-
-        for (const cat in stats.byCategory) {
-            const catStats = stats.byCategory[cat];
-            if (catStats.total > 0) {
-                html += `
-                    <div class="stats-row">
-                        <span class="stats-label">${categoryNames[cat]}</span>
-                        <span class="stats-value">${catStats.completionRate}%</span>
-                    </div>
-                    <div class="progress-bar" style="margin-bottom: 0.75rem;">
-                        <div class="progress-fill" style="width: ${catStats.completionRate}%"></div>
-                    </div>
-                `;
-            }
-        }
-        
-        html += '</div>';
-
-        // Detailed stats
-        html += '<div class="category-stats">';
-        html += '<h4>📈 Estatísticas Detalhadas</h4>';
-        html += `
-            <div class="stats-row">
-                <span class="stats-label">✅ Concluído</span>
-                <span class="stats-value">${stats.overall.completed}</span>
-            </div>
-            <div class="stats-row">
-                <span class="stats-label">🟡 Em Andamento</span>
-                <span class="stats-value">${stats.overall.inProgress}</span>
-            </div>
-            <div class="stats-row">
-                <span class="stats-label">❌ Não Feito</span>
-                <span class="stats-value">${stats.overall.notDone}</span>
-            </div>
-            <div class="stats-row">
-                <span class="stats-label">⏭️ Pulado</span>
-                <span class="stats-value">${stats.overall.skipped}</span>
-            </div>
-        `;
-        html += '</div>';
-
-        // Drill-down section
-        html += await this.renderDrillDown(period, startDate, endDate);
+        html += this._renderStatusSquaresHTML(squaresData, squaresLabel, squaresTotal, period, startDate, endDate);
+        html += this._renderTodayProgressBarHTML(todayCompleted, totalItems);
+        html += this._renderDemandCardsHTML(period, rangeData, startDate, endDate, todayDayData);
 
         container.innerHTML = html;
-        
-        // Render charts after DOM is ready and Chart.js is loaded
+
+        const scrollToRestore = this._reportsScrollTop || 0;
         setTimeout(async () => {
             if (typeof Chart !== 'undefined') {
                 await this.renderPerformanceChart(period, startDate, endDate);
                 await this.renderGroupChart(period, startDate, endDate);
-            } else {
-                console.warn('Chart.js is not loaded. Charts will not be displayed.');
             }
-            this.setupAccordions();
-        }, 100);
+            this._setupSquareTooltips();
+            this._setupDemandSectionToggle(); // restores open sections → changes page height
+            this._renderAllSparklines();
+            // Wait for layout to settle after sections are restored, then scroll
+            if (scrollToRestore > 0) {
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    window.scrollTo({ top: scrollToRestore, behavior: 'instant' });
+                }));
+            }
+        }, 80);
+    }
+
+    /** Builds squares data from today's APP_DATA cross-referenced with storage */
+    _buildSquaresFromAppData(todayDayData) {
+        const result = { concluido: [], andamento: [], aguardando: [], semNota: [], bloqueado: [], semStatus: [] };
+        const catLabels = { clientes: '👥', categorias: '🗂️', atividades: '🎯' };
+        for (const cat of ['clientes', 'categorias', 'atividades']) {
+            for (const item of APP_DATA[cat]) {
+                const raw = todayDayData[cat]?.[item.id];
+                const s = (typeof raw === 'string' ? raw : raw?.status) || 'none';
+                const note = (!raw || typeof raw === 'string') ? '' : (raw?.note || '');
+                const entry = { name: item.name, cat: catLabels[cat] };
+                if (s === 'concluido' || s === 'concluido-ongoing' || s === 'parcialmente') result.concluido.push(entry);
+                else if (s === 'em-andamento') result.andamento.push(entry);
+                else if (s === 'aguardando') result.aguardando.push(entry);
+                else if (s === 'bloqueado' || s === 'nao-feito') result.bloqueado.push(entry);
+                else if (s === 'none') result.semStatus.push(entry);
+                // sem nota = empty note field (independent of status)
+                if (!note.trim()) result.semNota.push(entry);
+            }
+        }
+        return result;
+    }
+
+    /** Builds squares data by scanning storage records for a date range */
+    _buildSquaresFromRangeData(rangeData, startDate, endDate) {
+        const result = { concluido: [], andamento: [], aguardando: [], semNota: [], bloqueado: [], semStatus: [] };
+        const catLabels = { clientes: '👥', categorias: '🗂️', atividades: '🎯' };
+        const settings = StorageManager.getSettings();
+        const deletedNames = settings.deletedItemNames || {};
+        const getName = (cat, id) => APP_DATA[cat]?.find(i => i.id === id)?.name || deletedNames[id] || id;
+
+        for (const dateStr in rangeData) {
+            const date = new Date(dateStr);
+            if (date < startDate || date > endDate) continue;
+            const dayData = rangeData[dateStr];
+            for (const cat of ['clientes', 'categorias', 'atividades']) {
+                if (!dayData[cat]) continue;
+                for (const [itemId, itemData] of Object.entries(dayData[cat])) {
+                    const s = (typeof itemData === 'string' ? itemData : itemData?.status) || 'none';
+                    const note = typeof itemData === 'string' ? '' : (itemData?.note || '');
+                    const entry = { name: getName(cat, itemId), cat: catLabels[cat] };
+                    if (s === 'concluido' || s === 'concluido-ongoing' || s === 'parcialmente') result.concluido.push(entry);
+                    else if (s === 'em-andamento') result.andamento.push(entry);
+                    else if (s === 'aguardando') result.aguardando.push(entry);
+                    else if (s === 'bloqueado' || s === 'nao-feito') result.bloqueado.push(entry);
+                    else if (s === 'none') result.semStatus.push(entry);
+                    // sem nota = empty note field (independent of status)
+                    if (!note.trim()) result.semNota.push(entry);
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Renders the 5 status squares HTML */
+    _renderStatusSquaresHTML(squaresData, label, total, period, startDate, endDate) {
+        this._squaresData = squaresData;
+        this._squaresPeriod = period;
+        this._squaresStartDate = startDate;
+        this._squaresEndDate = endDate;
+        const squares = [
+            { key: 'concluido',  cls: 'sq-concluido',  label: 'Concluídas', histFilter: 'concluido'   },
+            { key: 'andamento',  cls: 'sq-andamento',  label: 'Andamento',  histFilter: 'em-andamento'},
+            { key: 'aguardando', cls: 'sq-aguardando', label: 'Aguardando', histFilter: 'aguardando'  },
+            { key: 'semNota',    cls: 'sq-sem-nota',   label: 'Sem Nota',   histFilter: 'sem-nota'    },
+            { key: 'semStatus',  cls: 'sq-sem-status', label: 'Sem Status', histFilter: 'none'        },
+            { key: 'bloqueado',  cls: 'sq-bloqueado',  label: 'Bloqueadas', histFilter: 'bloqueado'   },
+        ];
+        const totalLabel = total ? ` <span style="opacity:0.45;font-weight:500">${total} demandas</span>` : '';
+        let html = `<div class="status-squares-section">
+            <div class="status-squares-label">${label}${totalLabel}</div>
+            <div class="status-squares-grid">`;
+        for (const sq of squares) {
+            const count = (squaresData[sq.key] || []).length;
+            html += `<div class="status-square ${sq.cls}" data-sq-key="${sq.key}" data-hist-filter="${sq.histFilter}" title="Ver no histórico">
+                <span class="status-square-label">${sq.label}</span>
+                <span class="status-square-count">${count}</span>
+            </div>`;
+        }
+        html += `</div></div>`;
+        return html;
+    }
+
+    /** Renders today's progress bar */
+    _renderTodayProgressBarHTML(completed, total) {
+        const pct = total > 0 ? Math.round(completed / total * 100) : 0;
+        return `<div class="today-progress-section">
+            <div class="today-progress-header">
+                <span class="today-progress-title">Progresso de Hoje</span>
+                <span class="today-progress-pct">${pct}%</span>
+            </div>
+            <div class="today-progress-bar">
+                <div class="today-progress-fill" style="width:${pct}%"></div>
+            </div>
+            <div class="today-progress-sub">${completed} de ${total} concluídas</div>
+        </div>`;
+    }
+
+    /** Renders individual demand cards for all categories */
+    _renderDemandCardsHTML(period, rangeData, startDate, endDate, todayDayData) {
+        // Lê rótulos personalizados das categorias nas configurações
+        const _settings = StorageManager.getSettings();
+        const _catLbls = _settings.categoryLabels || {};
+        const catInfo = [
+            { key: 'clientes',   icon: '👥', label: _catLbls.clientes   || 'Clientes'   },
+            { key: 'categorias', icon: '🗂️', label: _catLbls.categorias || 'Categorias' },
+            { key: 'atividades', icon: '🎯', label: _catLbls.atividades  || 'Atividades'  },
+        ];
+        let html = '<div class="demand-cards-section"><div class="report-section-title">Relatório por Demanda</div>';
+
+        for (const ci of catInfo) {
+            const items = APP_DATA[ci.key] || [];
+            if (!items.length) continue;
+
+            const catCompleted = items.filter(item => {
+                const raw = todayDayData[ci.key]?.[item.id];
+                const s = (typeof raw === 'string' ? raw : raw?.status) || 'none';
+                return s === 'concluido' || s === 'concluido-ongoing';
+            }).length;
+
+            html += `<div class="demand-section-header" data-sec="${ci.key}">
+                <span class="section-icon">${ci.icon}</span>
+                <span class="section-title">${ci.label}</span>
+                <span class="section-stats">${catCompleted}/${items.length} hoje</span>
+                <span class="section-chevron">▼</span>
+            </div>
+            <div class="demand-section-body" data-sec-body="${ci.key}">`;
+
+            for (const item of items) {
+                const rawToday = todayDayData[ci.key]?.[item.id];
+                const todayStatus = (typeof rawToday === 'string' ? rawToday : rawToday?.status) || 'none';
+                const stats = this._getItemStatsFromRangeData(item.id, ci.key, rangeData, startDate, endDate, period);
+                const badge = this._getStatusBadgeLabel(todayStatus);
+                const histJson = JSON.stringify(stats.history).replace(/'/g, '&#39;');
+                const safeName = item.name.replace(/'/g, '&#39;');
+
+                html += `<div class="demand-card" data-item-id="${item.id}" data-item-cat="${ci.key}" data-item-name='${safeName}'>
+                    <div class="demand-card-header">
+                        <span class="demand-card-name">${item.name}</span>
+                        <span class="demand-status-badge badge-${todayStatus}">${badge}</span>
+                    </div>
+                    <div class="demand-sparkline-wrap">
+                        <canvas class="demand-sparkline" data-history='${histJson}'></canvas>
+                    </div>
+                    <div class="demand-card-rate">
+                        <span class="demand-card-rate-pct">${stats.rate}%</span>
+                        <div class="demand-rate-bar">
+                            <div class="demand-rate-fill" style="width:${stats.rate}%"></div>
+                        </div>
+                    </div>
+                    <div class="demand-card-stats">
+                        ${stats.concluido ? `<span class="demand-stat-chip">✅ ${stats.concluido}</span>` : ''}
+                        ${stats.andamento ? `<span class="demand-stat-chip">🟡 ${stats.andamento}</span>` : ''}
+                        ${stats.bloqueado ? `<span class="demand-stat-chip">🚫 ${stats.bloqueado}</span>` : ''}
+                        ${stats.aguardando ? `<span class="demand-stat-chip">🔵 ${stats.aguardando}</span>` : ''}
+                        ${stats.naoFeito  ? `<span class="demand-stat-chip">❌ ${stats.naoFeito}</span>` : ''}
+                        ${stats.total === 0 ? '<span class="demand-stat-chip" style="opacity:0.38">Sem registros</span>' : ''}
+                    </div>
+                </div>`;
+            }
+            html += `</div>`;
+        }
+        html += '</div>';
+        return html;
+    }
+
+    /** Computes stats for a single item from pre-loaded rangeData */
+    _getItemStatsFromRangeData(itemId, category, rangeData, startDate, endDate, period) {
+        const stats = { concluido: 0, andamento: 0, aguardando: 0, bloqueado: 0, naoFeito: 0, total: 0, history: [] };
+        const scoreMap = { 'concluido': 1, 'concluido-ongoing': 1, 'parcialmente': 0.7, 'em-andamento': 0.5, 'aguardando': 0.3, 'bloqueado': 0, 'nao-feito': 0, 'prioridade': 0 };
+        const dayMs = 86400000;
+        const totalDays = Math.round((endDate - startDate) / dayMs) + 1;
+        const useWeekly = totalDays > 60;
+
+        if (useWeekly) {
+            // Aggregate by week for year/all mode
+            let ws = new Date(startDate);
+            while (ws <= endDate) {
+                const we = new Date(ws);
+                we.setDate(we.getDate() + 6);
+                let sum = 0, cnt = 0;
+                for (let d = new Date(ws); d <= we && d <= endDate; d.setDate(d.getDate() + 1)) {
+                    const ds = this.getDateString(d);
+                    const itemData = rangeData[ds]?.[category]?.[itemId];
+                    if (itemData) {
+                        const s = typeof itemData === 'string' ? itemData : (itemData.status || 'none');
+                        const sc = scoreMap[s];
+                        if (sc !== undefined) { sum += sc; cnt++; }
+                    }
+                }
+                stats.history.push(cnt > 0 ? sum / cnt : null);
+                ws.setDate(ws.getDate() + 7);
+            }
+        } else {
+            // Daily sparkline
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                const ds = this.getDateString(d);
+                const itemData = rangeData[ds]?.[category]?.[itemId];
+                if (itemData) {
+                    const s = typeof itemData === 'string' ? itemData : (itemData.status || 'none');
+                    const sc = scoreMap[s];
+                    stats.history.push(sc !== undefined ? sc : null);
+                } else {
+                    stats.history.push(null);
+                }
+            }
+        }
+
+        // Count totals
+        for (const dateStr in rangeData) {
+            const date = new Date(dateStr);
+            if (date < startDate || date > endDate) continue;
+            const itemData = rangeData[dateStr]?.[category]?.[itemId];
+            if (!itemData) continue;
+            const s = typeof itemData === 'string' ? itemData : (itemData.status || 'none');
+            if (s === 'none' || s === 'pular') continue;
+            stats.total++;
+            if (s === 'concluido' || s === 'concluido-ongoing') stats.concluido++;
+            else if (s === 'em-andamento' || s === 'parcialmente') stats.andamento++;
+            else if (s === 'aguardando') stats.aguardando++;
+            else if (s === 'bloqueado') stats.bloqueado++;
+            else if (s === 'nao-feito') stats.naoFeito++;
+        }
+
+        stats.rate = stats.total > 0 ? Math.round(stats.concluido / stats.total * 100) : 0;
+        return stats;
+    }
+
+    /** Returns badge label for a status */
+    _getStatusBadgeLabel(status) {
+        const m = { 'concluido': '✅ Concluído', 'concluido-ongoing': '✅ Contínuo', 'em-andamento': '🟡 Andamento', 'aguardando': '🔵 Aguardando', 'bloqueado': '🚫 Bloqueado', 'nao-feito': '❌ Não Feito', 'parcialmente': '🟠 Parcial', 'pular': '⏭️ Pulado', 'prioridade': '⚫ Prio', 'none': '— Sem status' };
+        return m[status] || '— Sem status';
+    }
+
+    /** Sets up hover/click tooltips on status squares */
+    _setupSquareTooltips() {
+        if (this._sqDocListener) {
+            document.removeEventListener('click', this._sqDocListener);
+            this._sqDocListener = null;
+        }
+        let tooltip = document.getElementById('sqTooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'sqTooltip';
+            tooltip.className = 'status-tooltip';
+            document.body.appendChild(tooltip);
+        }
+        const labels = { concluido: '✅ Concluídas', andamento: '🟡 Em Andamento', aguardando: '🔵 Aguardando', semNota: '⚪ Sem Nota', semStatus: '○ Sem Status', bloqueado: '🚫 Bloqueadas' };
+        let activeSq = null;
+
+        const hide = () => { tooltip.classList.remove('visible'); activeSq = null; };
+
+        const show = (sq) => {
+            const key = sq.dataset.sqKey;
+            const items = this._squaresData?.[key] || [];
+            let inner = `<div class="status-tooltip-title">${labels[key] || key}</div>`;
+            if (!items.length) {
+                inner += `<div style="opacity:0.5;padding:8px 0;text-align:center;font-size:11px">Nenhuma demanda</div>`;
+            } else {
+                items.slice(0, 25).forEach(it => {
+                    inner += `<div class="status-tooltip-item"><span>${it.name}</span><span class="status-tooltip-cat">${it.cat}</span></div>`;
+                });
+                if (items.length > 25) inner += `<div style="text-align:center;opacity:0.38;font-size:10px;margin-top:5px">+${items.length - 25} mais</div>`;
+            }
+            tooltip.innerHTML = inner;
+            tooltip.classList.add('visible');
+
+            const rect = sq.getBoundingClientRect();
+            const tw = 230;
+            const estimatedH = Math.min(280, items.length * 28 + 48);
+            let left = rect.left + rect.width / 2 - tw / 2;
+            let top = rect.top - estimatedH - 8;
+            if (left < 8) left = 8;
+            if (left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
+            if (top < 8) top = rect.bottom + 8;
+            tooltip.style.cssText = `left:${Math.round(left)}px;top:${Math.round(top)}px;width:${tw}px;`;
+        };
+
+        const isHoverDevice = window.matchMedia('(hover: hover)').matches;
+
+        document.querySelectorAll('.status-square').forEach(sq => {
+            if (isHoverDevice) {
+                sq.addEventListener('mouseenter', () => { show(sq); activeSq = sq; });
+                sq.addEventListener('mouseleave', hide);
+            }
+            sq.addEventListener('click', e => {
+                e.stopPropagation();
+                hide();
+                const histFilter = sq.dataset.histFilter || 'all';
+                const period = this._squaresPeriod || 'week';
+                const today = new Date();
+                today.setHours(12, 0, 0, 0);
+
+                if (period === 'month') {
+                    // Mostrar todo o mês atual como range
+                    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+                    monthStart.setHours(0, 0, 0, 0);
+                    const monthEnd = new Date(today);
+                    monthEnd.setHours(23, 59, 59, 999);
+                    const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${d.getMonth()+1}`;
+                    const label = `${fmt(monthStart)}–${fmt(monthEnd)}`;
+                    this._navigateToHistoryWithFilter(histFilter, '', today, { start: monthStart, end: monthEnd, label });
+                } else if (period === 'year' || period === 'all') {
+                    // Mostrar todo o ano atual como range
+                    const yearStart = new Date(today.getFullYear(), 0, 1);
+                    yearStart.setHours(0, 0, 0, 0);
+                    const yearEnd = new Date(today);
+                    yearEnd.setHours(23, 59, 59, 999);
+                    const label = `Jan–${today.toLocaleString('pt-BR',{month:'short'})} ${today.getFullYear()}`;
+                    this._navigateToHistoryWithFilter(histFilter, '', today, { start: yearStart, end: yearEnd, label });
+                } else {
+                    // Semana → navega para o dia de hoje (visualização normal)
+                    this._navigateToHistoryWithFilter(histFilter, '', today);
+                }
+            });
+        });
+
+        this._sqDocListener = e => { if (!e.target.closest('.status-square')) hide(); };
+        document.addEventListener('click', this._sqDocListener);
+    }
+
+    /** Sets up collapsible demand category sections and card click-to-history */
+    _setupDemandSectionToggle() {
+        // Restore previously open sections
+        if (!this._reportsSectionStates) this._reportsSectionStates = {};
+        document.querySelectorAll('.demand-section-header').forEach(header => {
+            const key = header.dataset.sec;
+            const body = document.querySelector(`.demand-section-body[data-sec-body="${key}"]`);
+            if (this._reportsSectionStates[key]) {
+                header.classList.add('open');
+                if (body) body.classList.add('open');
+            }
+            header.addEventListener('click', () => {
+                const isOpen = header.classList.contains('open');
+                header.classList.toggle('open', !isOpen);
+                this._reportsSectionStates[key] = !isOpen;
+                if (body) {
+                    body.classList.toggle('open', !isOpen);
+                    if (!isOpen) setTimeout(() => this._renderAllSparklines(), 30);
+                }
+            });
+        });
+
+        // Demand card click → navigate to history filtered by item name
+        document.querySelectorAll('.demand-card').forEach(card => {
+            card.addEventListener('click', e => {
+                e.stopPropagation();
+                const itemName = card.dataset.itemName || '';
+                const period = this._squaresPeriod || 'week';
+                const today = new Date();
+                if (period === 'week') {
+                    // Show full 7-day range for this item
+                    const weekStart = new Date(today);
+                    weekStart.setDate(today.getDate() - 6);
+                    weekStart.setHours(0, 0, 0, 0);
+                    const weekEnd = new Date(today);
+                    weekEnd.setHours(23, 59, 59, 999);
+                    const fmt = d => `${d.getDate()}/${d.getMonth() + 1}`;
+                    const rangeLabel = `${itemName} · ${fmt(weekStart)}–${fmt(weekEnd)}`;
+                    this._navigateToHistoryWithFilter('all', itemName, today, { start: weekStart, end: weekEnd, label: rangeLabel });
+                } else if (period === 'month') {
+                    // Mês completo como range, filtrado pelo nome da demanda
+                    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+                    monthStart.setHours(0, 0, 0, 0);
+                    const monthEnd = new Date(today);
+                    monthEnd.setHours(23, 59, 59, 999);
+                    const fmt = d => `${d.getDate()}/${d.getMonth()+1}`;
+                    const rangeLabel = `${itemName} · ${fmt(monthStart)}–${fmt(monthEnd)}`;
+                    this._navigateToHistoryWithFilter('all', itemName, today, { start: monthStart, end: monthEnd, label: rangeLabel });
+                } else {
+                    // Ano completo como range, filtrado pelo nome da demanda
+                    const yearStart = new Date(today.getFullYear(), 0, 1);
+                    yearStart.setHours(0, 0, 0, 0);
+                    const yearEnd = new Date(today);
+                    yearEnd.setHours(23, 59, 59, 999);
+                    const rangeLabel = `${itemName} · Jan–${today.toLocaleString('pt-BR',{month:'short'})} ${today.getFullYear()}`;
+                    this._navigateToHistoryWithFilter('all', itemName, today, { start: yearStart, end: yearEnd, label: rangeLabel });
+                }
+            });
+        });
+    }
+
+    /** Navigates to history tab with a status filter and optional search query */
+    async _navigateToHistoryWithFilter(statusFilter, searchQuery, date, dateRange) {
+        // Set history date and optional range
+        this.historyDate = new Date(date || new Date());
+        this.historyDate.setHours(12, 0, 0, 0);
+        this._historyDateRange = dateRange || null;
+
+        // Set filters before rendering
+        this._activeHistoryFilter = statusFilter || 'all';
+        this._historySearchQuery = searchQuery ? searchQuery.toLowerCase() : '';
+
+        // Navigate to history view
+        await this.showView('history');
+
+        // Sync filter buttons to match active filter
+        document.querySelectorAll('#historyStatusFilter .tsf-btn').forEach(b => {
+            b.classList.toggle('tsf-active', b.dataset.status === this._activeHistoryFilter);
+        });
+
+        // Sync search input
+        const input    = document.getElementById('historySearchInput');
+        const wrap     = document.getElementById('historySearchWrap');
+        const clearBtn = document.getElementById('historySearchClear');
+        if (searchQuery) {
+            if (input)    input.value = searchQuery;
+            if (wrap)     wrap.classList.add('tsf-search-open');
+            if (clearBtn) clearBtn.style.display = 'flex';
+        } else {
+            // No search — ensure search bar is hidden/empty
+            if (input)    input.value = '';
+            if (wrap)     wrap.classList.remove('tsf-search-open');
+            if (clearBtn) clearBtn.style.display = 'none';
+        }
+    }
+
+    /** Triggers sparkline drawing on all visible canvases */
+    _renderAllSparklines() {
+        document.querySelectorAll('.demand-sparkline').forEach(canvas => {
+            try {
+                const history = JSON.parse(canvas.dataset.history || '[]');
+                this._drawSparkline(canvas, history);
+            } catch (e) {}
+        });
+    }
+
+    /** Draws a mini sparkline chart on a canvas */
+    _drawSparkline(canvas, history) {
+        const W = canvas.parentElement?.offsetWidth || 160;
+        const H = 32;
+        canvas.width = W;
+        canvas.height = H;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, W, H);
+
+        const validCount = history.filter(v => v !== null).length;
+        if (validCount < 2) {
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(149,211,238,0.15)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([3, 4]);
+            ctx.moveTo(0, H / 2);
+            ctx.lineTo(W, H / 2);
+            ctx.stroke();
+            return;
+        }
+
+        const n = history.length;
+        const pad = 3;
+        const toX = i => pad + (i / (n - 1)) * (W - pad * 2);
+        const toY = v => H - pad - v * (H - pad * 2);
+        const pts = history.map((v, i) => v !== null ? [toX(i), toY(v)] : null);
+
+        // Fill area under line
+        ctx.beginPath();
+        let filling = false;
+        for (let i = 0; i < pts.length; i++) {
+            if (!pts[i]) continue;
+            if (!filling) { ctx.moveTo(pts[i][0], H); ctx.lineTo(pts[i][0], pts[i][1]); filling = true; }
+            else ctx.lineTo(pts[i][0], pts[i][1]);
+        }
+        for (let i = pts.length - 1; i >= 0; i--) { if (pts[i]) { ctx.lineTo(pts[i][0], H); break; } }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(149,211,238,0.06)';
+        ctx.fill();
+
+        // Line
+        ctx.beginPath();
+        ctx.setLineDash([]);
+        let first = true;
+        for (let i = 0; i < pts.length; i++) {
+            if (!pts[i]) continue;
+            if (first) { ctx.moveTo(pts[i][0], pts[i][1]); first = false; }
+            else ctx.lineTo(pts[i][0], pts[i][1]);
+        }
+        ctx.strokeStyle = 'rgba(149,211,238,0.42)';
+        ctx.lineWidth = 1.5;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+
+        // Dot on last valid point
+        for (let i = pts.length - 1; i >= 0; i--) {
+            if (!pts[i]) continue;
+            const v = history[i];
+            const color = v >= 0.9 ? '#4ade80' : v >= 0.5 ? '#facc15' : v >= 0.3 ? '#60a5fa' : '#f87171';
+            ctx.beginPath();
+            ctx.arc(pts[i][0], pts[i][1], 3, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            break;
+        }
     }
 
     async renderPerformanceChart(period, startDate, endDate) {
@@ -4615,6 +5184,13 @@ class HabitTrackerApp {
 
         const { labels, groupData } = await this.getGroupChartData(period, startDate, endDate);
 
+        // Lê os rótulos personalizados das categorias
+        const _s = StorageManager.getSettings();
+        const _cl = _s.categoryLabels || {};
+        const labelClientes   = _cl.clientes   || 'Clientes';
+        const labelCategorias = _cl.categorias || 'Categorias';
+        const labelAtividades = _cl.atividades || 'Atividades';
+
         const ctx = canvas.getContext('2d');
         this.groupChart = new Chart(ctx, {
             type: 'line',
@@ -4622,7 +5198,7 @@ class HabitTrackerApp {
                 labels: labels,
                 datasets: [
                     {
-                        label: 'Clientes',
+                        label: labelClientes,
                         data: groupData.clientes,
                         borderColor: '#95d3ee',
                         backgroundColor: 'rgba(149, 211, 238, 0.1)',
@@ -4633,7 +5209,7 @@ class HabitTrackerApp {
                         pointBackgroundColor: '#95d3ee'
                     },
                     {
-                        label: 'Categorias',
+                        label: labelCategorias,
                         data: groupData.categorias,
                         borderColor: '#f59e0b',
                         backgroundColor: 'rgba(245, 158, 11, 0.1)',
@@ -4644,7 +5220,7 @@ class HabitTrackerApp {
                         pointBackgroundColor: '#f59e0b'
                     },
                     {
-                        label: 'Atividades',
+                        label: labelAtividades,
                         data: groupData.atividades,
                         borderColor: '#a78bfa',
                         backgroundColor: 'rgba(167, 139, 250, 0.1)',

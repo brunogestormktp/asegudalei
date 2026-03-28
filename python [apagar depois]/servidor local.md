@@ -1,0 +1,1 @@
+cd /Users/bruno/Documents/asegundalei/segundalei_app && python3 serve.py

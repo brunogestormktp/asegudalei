@@ -406,6 +406,20 @@ const StorageManager = {
                         } catch(e) {}
                     }
 
+                    // Aplicar _settings do Supabase se for mais recente que o local
+                    if (merged['_settings']) {
+                        try {
+                            const localRaw = localStorage.getItem(this.SETTINGS_KEY);
+                            const localSettings = localRaw ? JSON.parse(localRaw) : {};
+                            const localTs = localSettings?.updatedAt ? new Date(localSettings.updatedAt).getTime() : 0;
+                            const remoteTs = merged['_settings']?.updatedAt ? new Date(merged['_settings'].updatedAt).getTime() : 0;
+                            if (remoteTs > localTs) {
+                                localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(merged['_settings']));
+                                console.log('✅ Configurações sincronizadas do Supabase');
+                            }
+                        } catch(e) {}
+                    }
+
                     console.log('✅ Data merged from Supabase (deep merge, no data lost)');
                     return true;
                 } else if (error && error.code !== 'PGRST116') {
@@ -509,10 +523,32 @@ const StorageManager = {
                 try { localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados'])); } catch(e) {}
             }
 
+            // Aplicar _settings do Supabase se for mais recente que o local
+            let settingsChanged = false;
+            if (merged['_settings']) {
+                try {
+                    const localRaw = localStorage.getItem(this.SETTINGS_KEY);
+                    const localSettings = localRaw ? JSON.parse(localRaw) : {};
+                    const localTs = localSettings?.updatedAt ? new Date(localSettings.updatedAt).getTime() : 0;
+                    const remoteTs = merged['_settings']?.updatedAt ? new Date(merged['_settings'].updatedAt).getTime() : 0;
+                    if (remoteTs > localTs) {
+                        localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(merged['_settings']));
+                        settingsChanged = true;
+                        console.log('🔄 Sync: configurações atualizadas de outro dispositivo');
+                    }
+                } catch(e) {}
+            }
+
             if (typeof app !== 'undefined' && app.renderCurrentView) {
                 console.log('🔄 Sync: re-renderizando view...');
                 this._realtimeSyncing = true;
-                try { app.renderCurrentView(); } finally { this._realtimeSyncing = false; }
+                try {
+                    // Se as configurações mudaram, reconstruir APP_DATA antes de renderizar
+                    if (settingsChanged && app.applySettings) {
+                        app.applySettings();
+                    }
+                    app.renderCurrentView();
+                } finally { this._realtimeSyncing = false; }
             }
         } catch(e) { /* rede offline — silencioso, tentará novamente em 10s */ }
     },
@@ -542,9 +578,24 @@ const StorageManager = {
 
     saveSettings(settings) {
         try {
+            // Timestamp para resolução de conflito multi-dispositivo
+            settings.updatedAt = new Date().toISOString();
             localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(settings));
+            // Sync imediato para o Supabase — configurações são a base do app
+            this._saveSettingsToSupabase(settings);
         } catch(e) {
             console.error('Erro ao salvar configurações:', e);
+        }
+    },
+
+    // Push imediato das configurações para o Supabase (fire-and-forget)
+    async _saveSettingsToSupabase(settings) {
+        try {
+            const allData = await this.getData();
+            allData['_settings'] = settings;
+            await this.saveData(allData, true); // immediate=true: sem debounce
+        } catch(e) {
+            console.error('Erro ao sincronizar configurações com Supabase:', e);
         }
     },
 

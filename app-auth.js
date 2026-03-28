@@ -72,6 +72,8 @@ window.addEventListener('load', async function checkAuth() {
             if (synced) {
                 // Re-renderizar o app com os dados atualizados do Supabase
                 if (typeof app !== 'undefined' && app.renderCurrentView) {
+                    // Aplicar configurações do Supabase antes do primeiro render
+                    if (app.applySettings) app.applySettings();
                     app.renderCurrentView();
                 } else {
                     // app ainda não foi inicializado, agendar re-render após carregamento
@@ -109,10 +111,13 @@ window.addEventListener('load', async function checkAuth() {
                 // Limpar APENAS chaves de sessão, preservar o backup de dados
                 const dataBackup = localStorage.getItem('habit-tracker-data-backup');
                 const aprendizadosBackup = localStorage.getItem('aprendizadosData');
+                const settingsBackup = localStorage.getItem('_settings');
                 localStorage.clear();
                 // Manter os backups para caso o usuário faça login novamente no mesmo dispositivo
                 if (dataBackup) localStorage.setItem('habit-tracker-data-backup', dataBackup);
                 if (aprendizadosBackup) localStorage.setItem('aprendizadosData', aprendizadosBackup);
+                // Preservar configurações: evita flash de settings padrão ao re-logar no mesmo dispositivo
+                if (settingsBackup) localStorage.setItem('_settings', settingsBackup);
 
                 window.location.href = 'index.html';
             } catch (error) {
@@ -145,6 +150,8 @@ window.addEventListener('load', async function checkAuth() {
                     console.log('Sincronizando dados do Supabase após login...');
                     const synced = await StorageManager.forceSyncFromSupabase();
                     if (synced && typeof app !== 'undefined' && app.renderCurrentView) {
+                        // Aplicar configurações do Supabase antes do render
+                        if (app.applySettings) app.applySettings();
                         app.renderCurrentView();
                     }
                     StorageManager.startPolling(newUserId);
