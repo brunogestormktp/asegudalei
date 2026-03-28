@@ -108,16 +108,32 @@ window.addEventListener('load', async function checkAuth() {
                 const { error } = await supabaseClient.auth.signOut();
                 if (error) throw error;
 
-                // Limpar APENAS chaves de sessão, preservar o backup de dados
+                // 🔒 SEGURANÇA: salvar backups TAGGEADOS com o user ID do usuário que está saindo.
+                // Os backups só serão usados se o MESMO usuário fizer login novamente no mesmo dispositivo.
+                // Se outro usuário entrar, os backups são descartados automaticamente pelo StorageManager.
+                const loggedOutUserId = currentUser?.id;
                 const dataBackup = localStorage.getItem('habit-tracker-data-backup');
                 const aprendizadosBackup = localStorage.getItem('aprendizadosData');
                 const settingsBackup = localStorage.getItem('_settings');
+
                 localStorage.clear();
-                // Manter os backups para caso o usuário faça login novamente no mesmo dispositivo
-                if (dataBackup) localStorage.setItem('habit-tracker-data-backup', dataBackup);
-                if (aprendizadosBackup) localStorage.setItem('aprendizadosData', aprendizadosBackup);
-                // Preservar configurações: evita flash de settings padrão ao re-logar no mesmo dispositivo
-                if (settingsBackup) localStorage.setItem('_settings', settingsBackup);
+
+                if (loggedOutUserId) {
+                    // Restaurar backups com tag de proprietário — só válidos para este user ID
+                    if (dataBackup) {
+                        localStorage.setItem('habit-tracker-data-backup', dataBackup);
+                        localStorage.setItem('_data_backup_uid', loggedOutUserId);
+                    }
+                    if (aprendizadosBackup) {
+                        localStorage.setItem('aprendizadosData', aprendizadosBackup);
+                        localStorage.setItem('_aprendizados_backup_uid', loggedOutUserId);
+                    }
+                    if (settingsBackup) {
+                        localStorage.setItem('_settings', settingsBackup);
+                        localStorage.setItem('_settings_backup_uid', loggedOutUserId);
+                    }
+                }
+                // Se por algum motivo não temos o userId, NÃO preservar nada (segurança)
 
                 window.location.href = 'index.html';
             } catch (error) {
