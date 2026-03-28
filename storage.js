@@ -26,11 +26,28 @@ const StorageManager = {
     // ─── Merge profundo: nunca perde dados já existentes ────────────────
     // Estratégia: para cada data > categoria > item, mantém o registro
     // com updatedAt mais recente. Nunca apaga, apenas mescla.
+    // Chaves especiais (_settings, _aprendizados) usam updatedAt diretamente.
     deepMerge(base, incoming) {
         if (!incoming || typeof incoming !== 'object') return base;
         const result = { ...base };
 
+        // Chaves especiais: resolver por updatedAt antes do loop de datas
+        const SPECIAL_KEYS = ['_settings', '_aprendizados'];
+        for (const key of SPECIAL_KEYS) {
+            if (incoming[key] !== undefined) {
+                const baseTs   = result[key]?.updatedAt   ? new Date(result[key].updatedAt).getTime()   : 0;
+                const incomTs  = incoming[key]?.updatedAt ? new Date(incoming[key].updatedAt).getTime() : 0;
+                // Remoto mais recente → usa remoto; senão mantém local
+                if (incomTs > baseTs || !result[key]) {
+                    result[key] = incoming[key];
+                }
+            }
+        }
+
         for (const dateKey of Object.keys(incoming)) {
+            // Ignorar chaves especiais já tratadas acima
+            if (SPECIAL_KEYS.includes(dateKey)) continue;
+
             if (!result[dateKey]) {
                 // Data nova no incoming — adicionar inteira
                 result[dateKey] = incoming[dateKey];
@@ -133,7 +150,15 @@ const StorageManager = {
 
     // Push data to Supabase (internal)
     async _pushToSupabase(data) {
-        if (this.syncInProgress) return;
+        if (this.syncInProgress) {
+            // Se já há um sync em andamento, aguardar e tentar novamente
+            await new Promise(resolve => setTimeout(resolve, 500));
+            if (this.syncInProgress) {
+                // Agendar retry após o sync atual terminar
+                setTimeout(() => this._pushToSupabase(data), 600);
+                return;
+            }
+        }
         if (!this.hasRealData(data)) {
             console.warn('⛔ _pushToSupabase bloqueado: dados vazios');
             return;
@@ -388,10 +413,19 @@ const StorageManager = {
                     const localRaw = localStorage.getItem(this.STORAGE_KEY);
                     const local = localRaw ? JSON.parse(localRaw) : {};
 
+                    // Incluir _settings local no objeto base para o deepMerge comparar corretamente
+                    try {
+                        const localSettingsRaw = localStorage.getItem(this.SETTINGS_KEY);
+                        if (localSettingsRaw && !local['_settings']) {
+                            local['_settings'] = JSON.parse(localSettingsRaw);
+                        }
+                    } catch(e) {}
+
                     // Remover _lastDeviceId do remoto antes de mesclar (não é dado do app)
                     const { _lastDeviceId: _ignored, ...cleanRemote } = remoteData.data;
 
                     // MERGE PROFUNDO: local + remoto, o mais recente por item vence
+                    // deepMerge já trata _settings e _aprendizados por updatedAt
                     const merged = this.deepMerge(local, cleanRemote);
 
                     // Salvar merged APENAS no localStorage — sem push de volta ao Supabase
@@ -406,17 +440,11 @@ const StorageManager = {
                         } catch(e) {}
                     }
 
-                    // Aplicar _settings do Supabase se for mais recente que o local
+                    // Aplicar _settings vencedor (já resolvido pelo deepMerge)
                     if (merged['_settings']) {
                         try {
-                            const localRaw = localStorage.getItem(this.SETTINGS_KEY);
-                            const localSettings = localRaw ? JSON.parse(localRaw) : {};
-                            const localTs = localSettings?.updatedAt ? new Date(localSettings.updatedAt).getTime() : 0;
-                            const remoteTs = merged['_settings']?.updatedAt ? new Date(merged['_settings'].updatedAt).getTime() : 0;
-                            if (remoteTs > localTs) {
-                                localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(merged['_settings']));
-                                console.log('✅ Configurações sincronizadas do Supabase');
-                            }
+                            localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(merged['_settings']));
+                            console.log('✅ Configurações sincronizadas do Supabase');
                         } catch(e) {}
                     }
 
@@ -512,7 +540,17 @@ const StorageManager = {
 
             const localRaw = localStorage.getItem(this.STORAGE_KEY);
             const local = localRaw ? JSON.parse(localRaw) : {};
+
+            // Incluir _settings local no base para deepMerge comparar corretamente
+            try {
+                const localSettingsRaw = localStorage.getItem(this.SETTINGS_KEY);
+                if (localSettingsRaw && !local['_settings']) {
+                    local['_settings'] = JSON.parse(localSettingsRaw);
+                }
+            } catch(e) {}
+
             const { _lastDeviceId: _ign, ...cleanRemote } = row.data;
+            // deepMerge já resolve _settings e _aprendizados por updatedAt
             const merged = this.deepMerge(local, cleanRemote);
 
             const mergedJson = JSON.stringify(merged);
@@ -523,15 +561,14 @@ const StorageManager = {
                 try { localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados'])); } catch(e) {}
             }
 
-            // Aplicar _settings do Supabase se for mais recente que o local
+            // Aplicar _settings vencedor (já resolvido pelo deepMerge)
             let settingsChanged = false;
             if (merged['_settings']) {
                 try {
-                    const localRaw = localStorage.getItem(this.SETTINGS_KEY);
-                    const localSettings = localRaw ? JSON.parse(localRaw) : {};
-                    const localTs = localSettings?.updatedAt ? new Date(localSettings.updatedAt).getTime() : 0;
-                    const remoteTs = merged['_settings']?.updatedAt ? new Date(merged['_settings'].updatedAt).getTime() : 0;
-                    if (remoteTs > localTs) {
+                    const currentRaw = localStorage.getItem(this.SETTINGS_KEY);
+                    const current = currentRaw ? JSON.parse(currentRaw) : {};
+                    // Verificar se mudou de fato antes de marcar settingsChanged
+                    if (JSON.stringify(current) !== JSON.stringify(merged['_settings'])) {
                         localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(merged['_settings']));
                         settingsChanged = true;
                         console.log('🔄 Sync: configurações atualizadas de outro dispositivo');
