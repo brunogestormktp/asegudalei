@@ -211,3 +211,8 @@ function getCurrentUserEmail() {
 // Exportar funções para uso no app
 window.getCurrentUserId = getCurrentUserId;
 window.getCurrentUserEmail = getCurrentUserEmail;
+
+// Registrar Service Worker para habilitar instalação PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
