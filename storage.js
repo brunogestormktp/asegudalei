@@ -534,14 +534,22 @@ const StorageManager = {
                     // _clearForeignLocalData() já limpou qualquer resíduo de outra conta.
                     // Se ainda restar dados locais sem tag (legacy), fazer push para o Supabase.
                     console.log('Conta nova: sem dados no Supabase. Iniciando sessão limpa.');
-                    const local = await this.getData();
-                    if (this.hasRealData(local)) {
-                        // Só fazer push se os dados locais pertencem a este usuário (ou não têm tag)
-                        const backupUid = localStorage.getItem('_data_backup_uid');
-                        if (!backupUid || backupUid === userId) {
-                            console.log('Fazendo push dos dados locais (sem tag) para o Supabase');
+                    // 🔒 SEGURANÇA: só fazer push se a tag confirmar que os dados pertencem a este usuário.
+                    // Dados sem tag (legacy) podem ser de outro usuário — NÃO fazer push.
+                    const backupUid = localStorage.getItem('_data_backup_uid');
+                    if (backupUid === userId) {
+                        const local = await this.getData();
+                        if (this.hasRealData(local)) {
+                            console.log('Fazendo push dos dados locais (confirmados deste usuário) para o Supabase');
                             await this._pushToSupabase(local);
                         }
+                    } else {
+                        // Sem tag ou tag de outro usuário: limpar localStorage e começar do zero
+                        console.log('🔒 [SEGURANÇA] Conta nova: dados locais sem tag descartados. Sessão limpa.');
+                        localStorage.removeItem(this.STORAGE_KEY);
+                        localStorage.removeItem(this.BACKUP_KEY);
+                        localStorage.removeItem(this.SETTINGS_KEY);
+                        localStorage.removeItem('aprendizadosData');
                     }
                     return true;
                 }
