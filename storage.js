@@ -106,6 +106,15 @@ const StorageManager = {
         // Tentar recuperar do backup automático
         const backup = localStorage.getItem(this.BACKUP_KEY);
         if (backup) {
+            // 🔒 SEGURANÇA: verificar se o backup pertence ao usuário atual
+            const backupUid = localStorage.getItem('_data_backup_uid');
+            const currentUid = this.getUserId();
+            if (backupUid && currentUid && backupUid !== currentUid) {
+                console.warn('🔒 [SEGURANÇA] Backup de outro usuário detectado — descartando para proteger dados');
+                localStorage.removeItem(this.BACKUP_KEY);
+                localStorage.removeItem('_data_backup_uid');
+                return {};
+            }
             try {
                 const recovered = JSON.parse(backup);
                 console.warn('⚠️ Dados principais ausentes — recuperando do backup automático');
@@ -133,6 +142,12 @@ const StorageManager = {
 
         // Backup automático separado (sempre atualizado junto)
         localStorage.setItem(this.BACKUP_KEY, json);
+
+        // 🔒 SEGURANÇA: marcar dono do backup com o user ID atual
+        const ownerId = this.getUserId();
+        if (ownerId) {
+            localStorage.setItem('_data_backup_uid', ownerId);
+        }
 
         const userId = this.getUserId();
         if (!userId) return;
@@ -390,6 +405,44 @@ const StorageManager = {
         return allData['_aprendizados'] || null;
     },
 
+    // ─── Limpar TODOS os dados locais de outra conta ────────────────────
+    // Chamado sempre que um usuário diferente faz login neste dispositivo.
+    // Garante que nenhum dado de outra pessoa apareça na sessão atual.
+    _clearForeignLocalData(newUserId) {
+        const keysToCheck = [
+            { dataKey: this.STORAGE_KEY,      uidKey: '_data_backup_uid' },
+            { dataKey: this.BACKUP_KEY,        uidKey: '_data_backup_uid' },
+            { dataKey: this.SETTINGS_KEY,      uidKey: '_settings_backup_uid' },
+            { dataKey: 'aprendizadosData',     uidKey: '_aprendizados_backup_uid' },
+        ];
+
+        let foundForeign = false;
+
+        for (const { dataKey, uidKey } of keysToCheck) {
+            const ownerUid = localStorage.getItem(uidKey);
+            // Se existe uma tag E ela pertence a outro usuário → remover
+            if (ownerUid && ownerUid !== newUserId) {
+                localStorage.removeItem(dataKey);
+                foundForeign = true;
+            }
+        }
+
+        // Limpar todas as tags de proprietário dos dados removidos
+        if (foundForeign) {
+            localStorage.removeItem('_data_backup_uid');
+            localStorage.removeItem('_settings_backup_uid');
+            localStorage.removeItem('_aprendizados_backup_uid');
+        }
+
+        // Caso extremo: dados sem nenhuma tag de proprietário (legacy/sem tag).
+        // Nesses casos NÃO limpamos — são dados que existiam antes desta proteção.
+        // Eles serão descartados pelo deepMerge se conflitarem com dados do Supabase.
+
+        if (foundForeign) {
+            console.warn(`🔒 [SEGURANÇA] Dados de outro usuário removidos do localStorage antes do login de ${newUserId}`);
+        }
+    },
+
     // ─── Force sync from Supabase (após login) ──────────────────────────
     // Usa merge profundo: nunca sobrescreve dados locais mais recentes
     async forceSyncFromSupabase() {
@@ -398,6 +451,10 @@ const StorageManager = {
             console.log('No user logged in');
             return false;
         }
+
+        // 🔒 SEGURANÇA CRÍTICA: limpar dados de outra conta ANTES de qualquer merge.
+        // Isso garante que a nova sessão começa com o localStorage limpo de dados alheios.
+        this._clearForeignLocalData(userId);
 
         try {
             const supabase = this.getSupabase();
@@ -409,7 +466,7 @@ const StorageManager = {
                     .single();
 
                 if (!error && remoteData?.data) {
-                    // Ler dados locais atuais
+                    // Ler dados locais atuais — agora garantidamente sem dados de outra conta
                     const localRaw = localStorage.getItem(this.STORAGE_KEY);
                     const local = localRaw ? JSON.parse(localRaw) : {};
 
@@ -433,10 +490,13 @@ const StorageManager = {
                     const mergedJson = JSON.stringify(merged);
                     localStorage.setItem(this.STORAGE_KEY, mergedJson);
                     localStorage.setItem(this.BACKUP_KEY, mergedJson);
+                    // 🔒 Marcar dono do backup com userId após sync bem-sucedido
+                    localStorage.setItem('_data_backup_uid', userId);
 
                     if (merged['_aprendizados']) {
                         try {
                             localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados']));
+                            localStorage.setItem('_aprendizados_backup_uid', userId);
                         } catch(e) {}
                     }
 
@@ -444,6 +504,7 @@ const StorageManager = {
                     if (merged['_settings']) {
                         try {
                             localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(merged['_settings']));
+                            localStorage.setItem('_settings_backup_uid', userId);
                             console.log('✅ Configurações sincronizadas do Supabase');
                         } catch(e) {}
                     }
@@ -454,11 +515,18 @@ const StorageManager = {
                     console.error('Error fetching from Supabase:', error);
                     return false;
                 } else if (error?.code === 'PGRST116') {
-                    // Nenhum dado no Supabase ainda — fazer push do local
-                    console.log('Sem dados no Supabase — fazendo push do local');
+                    // Nenhum dado no Supabase ainda para este usuário — conta nova e vazia.
+                    // _clearForeignLocalData() já limpou qualquer resíduo de outra conta.
+                    // Se ainda restar dados locais sem tag (legacy), fazer push para o Supabase.
+                    console.log('Conta nova: sem dados no Supabase. Iniciando sessão limpa.');
                     const local = await this.getData();
                     if (this.hasRealData(local)) {
-                        await this._pushToSupabase(local);
+                        // Só fazer push se os dados locais pertencem a este usuário (ou não têm tag)
+                        const backupUid = localStorage.getItem('_data_backup_uid');
+                        if (!backupUid || backupUid === userId) {
+                            console.log('Fazendo push dos dados locais (sem tag) para o Supabase');
+                            await this._pushToSupabase(local);
+                        }
                     }
                     return true;
                 }
@@ -595,13 +663,24 @@ const StorageManager = {
 
     getSettings() {
         try {
-            const raw = localStorage.getItem(this.SETTINGS_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                // Garantir campos novos em dados antigos (retrocompatibilidade)
-                if (!parsed.customItems) parsed.customItems = { clientes: [], categorias: [], atividades: [] };
-                if (!parsed.hiddenItems) parsed.hiddenItems = { clientes: [], categorias: [], atividades: [] };
-                return parsed;
+            // 🔒 SEGURANÇA: verificar se as settings pertencem ao usuário atual
+            const settingsUid = localStorage.getItem('_settings_backup_uid');
+            const currentUid  = this.getUserId();
+            if (settingsUid && currentUid && settingsUid !== currentUid) {
+                // Settings de outro usuário — descartar silenciosamente
+                console.warn('🔒 [SEGURANÇA] getSettings: settings de outro usuário — retornando padrão');
+                localStorage.removeItem(this.SETTINGS_KEY);
+                localStorage.removeItem('_settings_backup_uid');
+                // cai no return padrão abaixo
+            } else {
+                const raw = localStorage.getItem(this.SETTINGS_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    // Garantir campos novos em dados antigos (retrocompatibilidade)
+                    if (!parsed.customItems) parsed.customItems = { clientes: [], categorias: [], atividades: [] };
+                    if (!parsed.hiddenItems) parsed.hiddenItems = { clientes: [], categorias: [], atividades: [] };
+                    return parsed;
+                }
             }
         } catch { /* corrompido */ }
         return {
@@ -618,6 +697,11 @@ const StorageManager = {
             // Timestamp para resolução de conflito multi-dispositivo
             settings.updatedAt = new Date().toISOString();
             localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(settings));
+            // 🔒 SEGURANÇA: marcar dono das settings com o user ID atual
+            const ownerId = this.getUserId();
+            if (ownerId) {
+                localStorage.setItem('_settings_backup_uid', ownerId);
+            }
             // Sync imediato para o Supabase — configurações são a base do app
             this._saveSettingsToSupabase(settings);
         } catch(e) {
