@@ -1,0 +1,4 @@
+# Prevent files in this folder from being tracked in git / served publicly.
+# Move database schemas and secrets here - do NOT commit to public repos.
+*
+!.gitignore

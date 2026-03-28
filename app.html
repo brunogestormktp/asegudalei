@@ -2,7 +2,11 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=0.75, maximum-scale=0.75, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=0.75, viewport-fit=cover">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-ancestors 'none';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta http-equiv="Permissions-Policy" content="camera=(self), microphone=(self), geolocation=()">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
@@ -105,6 +109,12 @@
                     </svg>
                     <span>Aprendizados</span>
                 </button>
+                <button class="btn-nav-header btn-settings" id="btnSettings" title="Configurações">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
                 <button class="btn-nav-header btn-logout" id="btnLogout">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -144,6 +154,7 @@
                     </div>
                     <button class="tsf-btn tsf-active" data-status="all">Todos</button>
                     <button class="tsf-btn" data-status="none">Sem status</button>
+                    <button class="tsf-btn" data-status="sem-nota">Sem nota</button>
                     <button class="tsf-btn" data-status="prioridade">Prioridade</button>
                     <button class="tsf-btn" data-status="em-andamento">Em andamento</button>
                     <button class="tsf-btn" data-status="concluido">Concluído</button>
@@ -177,81 +188,32 @@
 
             <!-- History View -->
             <div class="view hidden" id="historyView">
-                <div class="history-filter-bar">
-                    <div class="history-filter-controls">
-                        <!-- Custom Period Selector -->
-                        <div class="period-selector-wrapper">
-                            <button class="period-selector-btn" id="periodSelectorBtn">
-                                <span class="period-selector-label" id="periodSelectorLabel">Últimos 7 dias</span>
-                                <svg width="12" height="8" viewBox="0 0 12 8" fill="none">
-                                    <path d="M1 1L6 6L11 1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                </svg>
-                            </button>
-                            <div class="period-dropdown hidden" id="periodDropdown">
-                                <button class="period-option" data-type="week">
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>📅 Esta semana</span>
-                                </button>
-                                <button class="period-option active" data-days="7">
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>Últimos 7 dias</span>
-                                </button>
-                                <button class="period-option" data-days="14">
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>14 dias</span>
-                                </button>
-                                <button class="period-option" data-days="30">
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>30 dias</span>
-                                </button>
-                                <button class="period-option" data-type="month">
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>📆 Este mês</span>
-                                </button>
-                                <button class="period-option" data-days="60">
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>60 dias</span>
-                                </button>
-                                <button class="period-option" data-days="90">
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                        <path d="M13 2.5L6 9.5L3 6.5" stroke="#95d3ee" stroke-width="2" stroke-linecap="round"/>
-                                    </svg>
-                                    <span>90 dias</span>
-                                </button>
-                            </div>
-                        </div>
-                        
-                        <div class="date-picker-wrapper">
-                            <input type="date" id="specificDate" class="filter-date" />
-                            <button class="btn-clear-date hidden" id="btnClearDate" title="Limpar data">✕</button>
-                        </div>
-                        <label class="toggle-empty-switch">
-                            <span>mostrar vazios</span>
-                            <div class="switch-container">
-                                <input type="checkbox" id="toggleEmptyItems" />
-                                <span class="switch-slider"></span>
-                            </div>
-                        </label>
-                    </div>
+                <div class="date-selector">
+                    <button class="btn-nav" id="btnPrevHistory">←</button>
+                    <h2 id="historyCurrentDate"></h2>
+                    <button class="btn-nav" id="btnNextHistory">→</button>
                 </div>
-                
-                <!-- Quick Navigation for History -->
-                <div class="quick-nav quick-nav-history">
-                    <button class="btn-quick-nav-history" data-category="clientes">👥 Clientes</button>
-                    <button class="btn-quick-nav-history" data-category="categorias">🏢 Empresa</button>
-                    <button class="btn-quick-nav-history" data-category="atividades">👤 Pessoal</button>
+
+                <!-- Status Filter -->
+                <div class="today-status-filter" id="historyStatusFilter">
+                    <div class="tsf-search-wrap" id="historySearchWrap">
+                        <button class="tsf-search-icon-btn" id="historySearchToggle" title="Pesquisar demandas">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </button>
+                        <input type="text" class="tsf-search-input" id="historySearchInput" placeholder="Pesquisar…" autocomplete="off" />
+                        <button class="tsf-search-clear" id="historySearchClear" title="Limpar">✕</button>
+                    </div>
+                    <button class="tsf-btn tsf-active" data-status="all">Todos</button>
+                    <button class="tsf-btn" data-status="none">Sem status</button>
+                    <button class="tsf-btn" data-status="sem-nota">Sem nota</button>
+                    <button class="tsf-btn" data-status="prioridade">Prioridade</button>
+                    <button class="tsf-btn" data-status="em-andamento">Em andamento</button>
+                    <button class="tsf-btn" data-status="concluido">Concluído</button>
+                    <button class="tsf-btn" data-status="parcialmente">Parcialmente</button>
+                    <button class="tsf-btn" data-status="aguardando">Aguardando</button>
+                    <button class="tsf-btn" data-status="nao-feito">Não feito</button>
+                    <button class="tsf-btn" data-status="bloqueado">Bloqueado</button>
+                    <button class="tsf-btn" data-status="pular">Pular</button>
                 </div>
                 
                 <div id="historyContent"></div>
@@ -316,6 +278,60 @@
                 <div class="aprend-lightbox hidden" id="aprendLightbox">
                     <button class="aprend-lightbox-close" id="aprendLightboxClose">✕</button>
                     <img id="aprendLightboxImg" src="" alt="" />
+                </div>
+            </div>
+            <!-- Settings View -->
+            <div class="view hidden" id="settingsView">
+                <div class="settings-container">
+                    <h2 class="settings-title">⚙️ Configurações</h2>
+                    <p class="settings-subtitle">Personalize categorias e demandas. Arraste para reordenar, edite os nomes, adicione ou remova itens.</p>
+
+                    <div class="settings-columns">
+                        <!-- Clientes Section -->
+                        <div class="settings-section" id="settingsSectionClientes">
+                            <div class="settings-section-header">
+                                <div class="settings-section-title-row">
+                                    <span class="settings-section-emoji" id="settingsEmojiClientes">👥</span>
+                                    <input type="text" class="settings-cat-input" id="settingsCatLabelClientes" data-cat="clientes" placeholder="👥 Clientes" />
+                                    <span class="settings-item-badge" id="settingsBadgeClientes">0</span>
+                                </div>
+                            </div>
+                            <div class="settings-items-list" id="settingsItemsClientes" data-cat="clientes"></div>
+                            <button class="settings-add-btn" id="settingsAddClientes" data-cat="clientes">
+                                <span class="settings-add-icon">+</span> Adicionar demanda
+                            </button>
+                        </div>
+
+                        <!-- Categorias Section -->
+                        <div class="settings-section" id="settingsSectionCategorias">
+                            <div class="settings-section-header">
+                                <div class="settings-section-title-row">
+                                    <span class="settings-section-emoji" id="settingsEmojiCategorias">🏢</span>
+                                    <input type="text" class="settings-cat-input" id="settingsCatLabelCategorias" data-cat="categorias" placeholder="🏢 Empresa" />
+                                    <span class="settings-item-badge" id="settingsBadgeCategorias">0</span>
+                                </div>
+                            </div>
+                            <div class="settings-items-list" id="settingsItemsCategorias" data-cat="categorias"></div>
+                            <button class="settings-add-btn" id="settingsAddCategorias" data-cat="categorias">
+                                <span class="settings-add-icon">+</span> Adicionar demanda
+                            </button>
+                        </div>
+
+                        <!-- Atividades Section -->
+                        <div class="settings-section" id="settingsSectionAtividades">
+                            <div class="settings-section-header">
+                                <div class="settings-section-title-row">
+                                    <span class="settings-section-emoji" id="settingsEmojiAtividades">👤</span>
+                                    <input type="text" class="settings-cat-input" id="settingsCatLabelAtividades" data-cat="atividades" placeholder="👤 Pessoal" />
+                                    <span class="settings-item-badge" id="settingsBadgeAtividades">0</span>
+                                </div>
+                            </div>
+                            <div class="settings-items-list" id="settingsItemsAtividades" data-cat="atividades"></div>
+                            <button class="settings-add-btn" id="settingsAddAtividades" data-cat="atividades">
+                                <span class="settings-add-icon">+</span> Adicionar demanda
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>

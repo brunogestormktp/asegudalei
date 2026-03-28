@@ -20,7 +20,6 @@ window.getSupabaseClient = function() {
     // Criar e armazenar o cliente
     try {
         window._supabaseClient = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
-        console.log('Cliente Supabase criado com sucesso');
         return window._supabaseClient;
     } catch (error) {
         console.error('Erro ao criar cliente Supabase:', error);

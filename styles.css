@@ -82,7 +82,7 @@ body {
 /* ── Desktop: centraliza app com max-width ── */
 @media screen and (min-width: 769px) {
     .app {
-        max-width: 1280px;
+        max-width: 1800px;
         margin-left: auto;
         margin-right: auto;
         width: 100%;
@@ -289,6 +289,12 @@ body {
     max-width: 1200px;
     width: 100%;
     margin: 0 auto;
+}
+
+/* Histórico: mesma largura da aba Hoje no desktop */
+.main-content.history-mode {
+    max-width: 1200px;
+    padding: 1rem;
 }
 
 .view {
@@ -2769,8 +2775,10 @@ mark.tsf-highlight {
 /* Desktop Responsive */
 @media (min-width: 768px) {
     #historyContent {
-        max-width: 860px;
-        margin: 0 auto;
+        max-width: 100%;
+        margin: 0;
+        width: 100%;
+        padding: 0 8px 40px;
     }
     
     .history-filter-bar {
@@ -2813,11 +2821,6 @@ mark.tsf-highlight {
     .status-label-new {
         min-width: 120px;
     }
-}
-
-.filter-dropdown:hover {
-    background: rgba(1, 57, 114, 0.85);
-    border-color: rgba(149, 211, 238, 0.35);
 }
 
 .filter-dropdown:focus {
@@ -3136,10 +3139,11 @@ mark.tsf-highlight {
 /* Desktop Responsive */
 @media (min-width: 768px) {
     #historyContent {
-        max-width: 860px;
-        margin: 0 auto;
+        max-width: 100%;
+        margin: 0;
+        padding: 0 8px 40px;
     }
-    
+
     .history-day-card-header {
         padding: 8px 20px;
     }
@@ -3343,6 +3347,11 @@ mark.tsf-highlight {
     }
 
     .main-content {
+        padding: 0.75rem;
+    }
+
+    .main-content.history-mode {
+        max-width: 1200px;
         padding: 0.75rem;
     }
 
@@ -5285,4 +5294,565 @@ mark.tsf-highlight {
     }
 
     .aprend-options-menu { right: 8px; left: 8px; min-width: unset; }
+}
+
+
+/* ══════════════════════════════════════════════════════
+   HISTÓRICO — MODO PLANILHA (Spreadsheet View)
+   ══════════════════════════════════════════════════════ */
+
+/* historyView ocupa toda a largura do .main-content.history-mode */
+#historyView {
+    width: 100%;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+#historyContent {
+    padding: 0 0 32px;
+    box-sizing: border-box;
+    width: 100%;
+    overflow-x: auto;
+}
+
+/* Cabeçalho do dia */
+.hs-day-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 18px 2px 10px;
+}
+
+.hs-day-name {
+    font-family: 'Quicksand', sans-serif;
+    font-weight: 700;
+    font-size: 16px;
+    color: #95d3ee;
+    letter-spacing: 0.3px;
+}
+
+.hs-day-date {
+    font-family: 'Quicksand', sans-serif;
+    font-weight: 400;
+    font-size: 13px;
+    color: rgba(255,255,255,0.45);
+}
+
+/* Bloco de categoria */
+.hs-cat-block {
+    margin-bottom: 22px;
+    border-radius: 12px;
+    overflow: auto;
+    border: 1px solid rgba(149, 211, 238, 0.1);
+    background: rgba(28, 86, 126, 0.18);
+    width: 100%;
+}
+
+/* Cabeçalho da categoria */
+.hs-cat-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    background: rgba(1, 57, 114, 0.55);
+    border-bottom: 1px solid rgba(149,211,238,0.12);
+    border-left: 3px solid var(--cat-color, #95d3ee);
+}
+
+.hs-cat-emoji { font-size: 14px; line-height: 1; }
+
+.hs-cat-label {
+    font-family: 'Quicksand', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--cat-color, #95d3ee);
+}
+
+/* ─── Tabela real ─── */
+.hs-table {
+    width: 100%;
+    min-width: 620px;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+/* Cabeçalho da tabela */
+.hs-thead tr,
+.hs-thead {
+    background: rgba(1, 57, 114, 0.4);
+}
+
+.hs-th {
+    padding: 7px 12px;
+    font-family: 'Quicksand', sans-serif;
+    font-weight: 700;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: rgba(149, 211, 238, 0.65);
+    border-bottom: 1px solid rgba(149, 211, 238, 0.1);
+    white-space: nowrap;
+    text-align: left;
+}
+
+/* Larguras das colunas */
+.hs-col-demanda    { width: 20%; min-width: 150px; }
+.hs-col-status     { width: 14%; min-width: 120px; }
+.hs-col-notas      { width: 38%; min-width: 220px; }
+.hs-col-obs        { width: 28%; min-width: 180px; }
+
+/* Linha de dados */
+.hs-tr:nth-child(odd) {
+    background: rgba(149, 211, 238, 0.025);
+}
+
+.hs-tr:hover,
+.hs-tr-cont:hover {
+    background: rgba(149, 211, 238, 0.07);
+}
+
+/* Células base */
+.hs-td {
+    padding: 9px 14px;
+    font-family: 'Quicksand', sans-serif;
+    font-size: 12.5px;
+    color: rgba(255, 255, 255, 0.85);
+    vertical-align: middle;
+    border-bottom: 1px solid rgba(149, 211, 238, 0.04);
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.hs-tr:last-child .hs-td {
+    border-bottom: none;
+}
+
+/* Linhas de continuação (nota linha 2, 3...) — separador suave */
+.hs-tr-cont .hs-td {
+    border-bottom: 1px solid rgba(149, 211, 238, 0.03);
+    border-top: none;
+    padding-top: 2px;
+    padding-bottom: 6px;
+}
+
+/* Separador visual entre demandas: borda superior na primeira linha de cada demanda */
+.hs-tr:not(.hs-tr-cont) .hs-td {
+    border-top: 2px solid rgba(149, 211, 238, 0.12);
+    padding-top: 12px;
+    padding-bottom: 10px;
+}
+
+/* Primeira demanda não precisa de borda no topo */
+tbody .hs-tr:first-child .hs-td {
+    border-top: none;
+    padding-top: 9px;
+}
+
+/* Nome da demanda */
+.hs-demanda-name {
+    font-weight: 600;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.95);
+    line-height: 1.4;
+}
+
+/* Demanda e status com rowspan ficam alinhados ao topo */
+.hs-col-demanda[rowspan],
+.hs-col-status[rowspan] {
+    vertical-align: top;
+    padding-top: 11px;
+}
+
+/* Coluna de status */
+.hs-col-status {
+    vertical-align: middle;
+}
+
+.hs-status-inner {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.hs-status-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.hs-dot-empty {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.hs-status-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+}
+
+/* Células de texto (notas, pendências, obs) */
+.hs-text-cell {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.68);
+    font-weight: 400;
+    white-space: pre-line;
+    vertical-align: top;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.hs-text-cell a {
+    color: #95d3ee;
+    text-decoration: underline;
+}
+
+.hs-empty-cell {
+    color: rgba(255, 255, 255, 0.18);
+    font-size: 12px;
+}
+
+/* Badges de observações dos pop-ups */
+.hs-obs-badge {
+    display: block;
+    padding: 3px 0;
+    font-size: 11.5px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.5;
+    border-left: 2px solid rgba(255,255,255,0.15);
+    padding-left: 7px;
+    margin-bottom: 4px;
+}
+
+.hs-obs-badge:last-child { margin-bottom: 0; }
+
+/* 🧠 Aprendizado (concluído) */
+.hs-obs-aprendizado {
+    color: rgba(34, 197, 94, 0.9);
+    border-left-color: #22c55e;
+    background: rgba(34, 197, 94, 0.06);
+    border-radius: 0 4px 4px 0;
+    padding-right: 6px;
+}
+
+/* 🚫 Bloqueado */
+.hs-obs-bloqueado {
+    color: rgba(239, 68, 68, 0.9);
+    border-left-color: #ef4444;
+    background: rgba(239, 68, 68, 0.06);
+    border-radius: 0 4px 4px 0;
+    padding-right: 6px;
+}
+
+/* ⏳ Parcialmente */
+.hs-obs-parcial {
+    color: rgba(249, 115, 22, 0.9);
+    border-left-color: #f97316;
+    background: rgba(249, 115, 22, 0.06);
+    border-radius: 0 4px 4px 0;
+    padding-right: 6px;
+}
+
+/* ─── Settings button (gear icon only) ────────────────────────────── */
+.btn-nav-header.btn-settings {
+    padding: 8px 10px;
+    margin-left: 4px;
+}
+
+/* ─── Settings View ─────────────────────────────────────────────────── */
+.settings-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 20px 40px;
+}
+
+.settings-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text-80);
+    margin: 0 0 6px;
+}
+
+.settings-subtitle {
+    font-size: 0.85rem;
+    color: var(--text-40);
+    margin: 0 0 24px;
+    line-height: 1.5;
+}
+
+/* ─── 3-column grid layout ──────────────────────────────────────────── */
+.settings-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .settings-columns {
+        grid-template-columns: 1fr;
+    }
+}
+
+.settings-section {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 16px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* ─── Section header ────────────────────────────────────────────────── */
+.settings-section-header {
+    margin-bottom: 14px;
+}
+
+.settings-section-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-section-emoji {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.settings-cat-input {
+    flex: 1;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-family: 'Quicksand', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--azul-claro);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.settings-cat-input:focus {
+    border-color: var(--azul-claro);
+    box-shadow: 0 0 0 3px rgba(149, 211, 238, 0.12);
+}
+
+.settings-item-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-40);
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 20px;
+    padding: 2px 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ─── Items list ────────────────────────────────────────────────────── */
+.settings-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+
+/* ─── Item row ──────────────────────────────────────────────────────── */
+.settings-item-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 5px 8px 5px 4px;
+    transition: background 0.15s, border-color 0.15s;
+    cursor: default;
+}
+
+.settings-item-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.settings-item-row--editing {
+    border-color: rgba(149, 211, 238, 0.25);
+    background: rgba(149, 211, 238, 0.04);
+}
+
+.settings-item-row--dragging {
+    opacity: 0.4;
+    border-style: dashed;
+}
+
+.settings-item-row--dragover {
+    border-color: var(--azul-claro);
+    background: rgba(149, 211, 238, 0.07);
+}
+
+/* ─── Drag handle ───────────────────────────────────────────────────── */
+.settings-drag-handle {
+    font-size: 1rem;
+    color: var(--text-40);
+    cursor: grab;
+    user-select: none;
+    padding: 0 3px;
+    flex-shrink: 0;
+    line-height: 1;
+    transition: color 0.15s;
+}
+
+.settings-drag-handle:hover {
+    color: var(--text-80);
+}
+
+.settings-drag-handle:active {
+    cursor: grabbing;
+}
+
+/* ─── ▲▼ buttons — hidden on desktop, visible on mobile ────────────── */
+.settings-item-order-btns {
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+    .settings-item-order-btns {
+        display: flex;
+    }
+}
+
+.settings-order-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    color: var(--text-60);
+    font-size: 0.6rem;
+    line-height: 1;
+    width: 18px;
+    height: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, color 0.15s;
+    padding: 0;
+}
+
+.settings-order-btn:hover {
+    background: rgba(149, 211, 238, 0.15);
+    color: var(--azul-claro);
+    border-color: var(--azul-claro);
+}
+
+/* ─── Name input ────────────────────────────────────────────────────── */
+.settings-item-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0;
+    padding: 3px 3px 3px 2px;
+    font-family: 'Quicksand', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-80);
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.settings-item-input:focus {
+    border-bottom-color: var(--azul-claro);
+}
+
+.settings-item-input::placeholder {
+    color: var(--text-40);
+    font-style: italic;
+}
+
+/* ─── Delete button ─────────────────────────────────────────────────── */
+.settings-delete-btn {
+    background: transparent;
+    border: none;
+    color: rgba(239, 68, 68, 0.5);
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    line-height: 1;
+    transition: color 0.15s, background 0.15s;
+    opacity: 0;
+}
+
+.settings-item-row:hover .settings-delete-btn {
+    opacity: 1;
+}
+
+.settings-delete-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.settings-delete-btn--confirm {
+    opacity: 1 !important;
+    color: #f97316 !important;
+    background: rgba(249, 115, 22, 0.15) !important;
+    font-weight: 700;
+}
+
+/* ─── Add button ────────────────────────────────────────────────────── */
+.settings-add-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 10px;
+    margin-top: 6px;
+    background: transparent;
+    border: 1.5px dashed rgba(149, 211, 238, 0.25);
+    border-radius: 8px;
+    color: rgba(149, 211, 238, 0.55);
+    font-family: 'Quicksand', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+    justify-content: center;
+}
+
+.settings-add-btn:hover {
+    border-color: var(--azul-claro);
+    color: var(--azul-claro);
+    background: rgba(149, 211, 238, 0.06);
+}
+
+.settings-add-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+    font-weight: 400;
+}
+
+/* ─── Mobile adjustments ────────────────────────────────────────────── */
+@media (max-width: 600px) {
+    .settings-container {
+        padding: 14px 10px 28px;
+    }
+    .settings-section {
+        padding: 12px 10px 10px;
+    }
+    /* On mobile, show delete btn always (no hover) */
+    .settings-delete-btn {
+        opacity: 0.6;
+    }
 }

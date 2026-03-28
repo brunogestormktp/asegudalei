@@ -454,12 +454,12 @@ const StorageManager = {
         this.stopPolling();
 
         this._pollUserId = userId;
-        console.log('🔄 Sync ativo (polling 3s)');
+        console.log('🔄 Sync ativo (polling 30s)');
 
         // Executar imediatamente na primeira vez para pegar mudanças recentes
         this._doPoll(userId);
 
-        this._pollTimer = setInterval(() => this._doPoll(userId), 3000);
+        this._pollTimer = setInterval(() => this._doPoll(userId), 30000);
     },
 
     stopPolling() {
@@ -515,6 +515,37 @@ const StorageManager = {
                 try { app.renderCurrentView(); } finally { this._realtimeSyncing = false; }
             }
         } catch(e) { /* rede offline — silencioso, tentará novamente em 10s */ }
+    },
+
+    // ─── Settings: labels de categorias, nomes e ordem de itens ────────
+    SETTINGS_KEY: '_settings',
+
+    getSettings() {
+        try {
+            const raw = localStorage.getItem(this.SETTINGS_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                // Garantir campos novos em dados antigos (retrocompatibilidade)
+                if (!parsed.customItems) parsed.customItems = { clientes: [], categorias: [], atividades: [] };
+                if (!parsed.hiddenItems) parsed.hiddenItems = { clientes: [], categorias: [], atividades: [] };
+                return parsed;
+            }
+        } catch { /* corrompido */ }
+        return {
+            categoryLabels: { clientes: '👥 Clientes', categorias: '🏢 Empresa', atividades: '👤 Pessoal' },
+            itemNames: { clientes: {}, categorias: {}, atividades: {} },
+            itemOrder: { clientes: null, categorias: null, atividades: null },
+            customItems: { clientes: [], categorias: [], atividades: [] },
+            hiddenItems: { clientes: [], categorias: [], atividades: [] }
+        };
+    },
+
+    saveSettings(settings) {
+        try {
+            localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(settings));
+        } catch(e) {
+            console.error('Erro ao salvar configurações:', e);
+        }
     },
 
     // ── Upload de imagem para o bucket note-images no Supabase Storage ──

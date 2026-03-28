@@ -11,6 +11,9 @@ class HabitTrackerApp {
         this.currentRecording = null; // { category, itemId, element }
         // Track currently editing item to ensure only one is active at a time
         this.currentlyEditingItem = null; // { element, noteEditable, category, itemId }
+        // Scroll memory for "Hoje" tab
+        this._todayScrollTop = 0;
+        this._pendingScrollRestore = false;
         // Charts
         this.performanceChart = null;
         this.groupChart = null;
@@ -34,6 +37,8 @@ class HabitTrackerApp {
         this._initNoteImagePaste();
         this._syncHeaderHeight();
         window.addEventListener('resize', () => this._syncHeaderHeight());
+        // Aplicar configurações salvas antes do primeiro render
+        this.applySettings();
         this.renderTodayView();
         // Re-sincroniza após render para garantir cálculo correto no iOS PWA
         // (date-selector precisa já estar no DOM com altura real)
@@ -175,7 +180,10 @@ class HabitTrackerApp {
         if (this.currentView === 'today') {
             this.renderTodayView();
         } else if (this.currentView === 'history') {
-            this.renderHistory(7);
+            const dateStr = this.historyDate
+                ? this.getDateString(this.historyDate)
+                : this.getDateString(new Date());
+            this.renderHistoryAsSpreadsheet(dateStr);
         } else if (this.currentView === 'reports') {
             this.renderReports(this.currentReportPeriod || 'week');
         } else if (this.currentView === 'aprendizados') {
@@ -616,6 +624,7 @@ class HabitTrackerApp {
         document.getElementById('btnHistory').addEventListener('click', () => this.showView('history'));
         document.getElementById('btnReports').addEventListener('click', () => this.showView('reports'));
         document.getElementById('btnAprendizados').addEventListener('click', () => this.showView('aprendizados'));
+        document.getElementById('btnSettings').addEventListener('click', () => this.showView('settings'));
 
         // Date navigation
         document.getElementById('btnPrevDay').addEventListener('click', () => this.changeDate(-1));
@@ -690,97 +699,62 @@ class HabitTrackerApp {
             });
         });
 
-        // Custom Period Selector
-        const periodSelectorBtn = document.getElementById('periodSelectorBtn');
-        const periodDropdown = document.getElementById('periodDropdown');
-        const periodOptions = document.querySelectorAll('.period-option');
-        
-        // Toggle dropdown
-        periodSelectorBtn?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            periodSelectorBtn.classList.toggle('active');
-            periodDropdown.classList.toggle('hidden');
+        // Navegação de data no histórico (← →)
+        document.getElementById('btnPrevHistory').addEventListener('click', () => this.changeHistoryDate(-1));
+        document.getElementById('btnNextHistory').addEventListener('click', () => this.changeHistoryDate(1));
+
+        // Filtro de status do histórico
+        document.getElementById('historyStatusFilter').addEventListener('click', (e) => {
+            const btn = e.target.closest('.tsf-btn');
+            if (!btn) return;
+            document.querySelectorAll('#historyStatusFilter .tsf-btn').forEach(b => b.classList.remove('tsf-active'));
+            btn.classList.add('tsf-active');
+            this._activeHistoryFilter = btn.dataset.status;
+            this._reRenderHistory();
         });
-        
-        // Close dropdown when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!e.target.closest('.period-selector-wrapper')) {
-                periodSelectorBtn?.classList.remove('active');
-                periodDropdown?.classList.add('hidden');
-            }
-        });
-        
-        // Period option selection
-        periodOptions.forEach(option => {
-            option.addEventListener('click', (e) => {
-                const days = parseInt(e.currentTarget.dataset.days);
-                const type = e.currentTarget.dataset.type;
-                const label = e.currentTarget.querySelector('span').textContent;
-                
-                // Update active state
-                periodOptions.forEach(opt => opt.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-                
-                // Update button label
-                document.getElementById('periodSelectorLabel').textContent = label;
-                
-                // Close dropdown
-                periodSelectorBtn.classList.remove('active');
-                periodDropdown.classList.add('hidden');
-                
-                // Clear specific date when period changes
-                document.getElementById('specificDate').value = '';
-                document.getElementById('btnClearDate').classList.add('hidden');
-                
-                // Render history based on type
-                if (type === 'week') {
-                    this.renderHistoryForCurrentWeek();
-                } else if (type === 'month') {
-                    this.renderHistoryForCurrentMonth();
-                } else if (days) {
-                    this.renderHistory(days);
-                }
-            });
-        });
-        
-        // Specific date selector
-        document.getElementById('specificDate')?.addEventListener('change', (e) => {
-            const dateValue = e.target.value;
-            if (dateValue) {
-                document.getElementById('btnClearDate').classList.remove('hidden');
-                this.renderHistoryForSpecificDate(dateValue);
+
+        // Busca no histórico
+        const hSearchToggle = document.getElementById('historySearchToggle');
+        const hSearchInput  = document.getElementById('historySearchInput');
+        const hSearchClear  = document.getElementById('historySearchClear');
+        const hSearchWrap   = document.getElementById('historySearchWrap');
+
+        hSearchToggle.addEventListener('click', () => {
+            const isOpen = hSearchWrap.classList.toggle('tsf-search-open');
+            if (isOpen) {
+                hSearchInput.focus();
             } else {
-                document.getElementById('btnClearDate').classList.add('hidden');
-                // Get current selected period from active option
-                const activeOption = document.querySelector('.period-option.active');
-                const currentPeriod = activeOption ? parseInt(activeOption.dataset.days) : 7;
-                this.renderHistory(currentPeriod);
+                hSearchInput.value = '';
+                this._historySearchQuery = '';
+                hSearchClear.style.display = 'none';
+                this._reRenderHistory();
             }
         });
-        
-        // Clear date button
-        document.getElementById('btnClearDate')?.addEventListener('click', () => {
-            document.getElementById('specificDate').value = '';
-            document.getElementById('btnClearDate').classList.add('hidden');
-            // Get current selected period from active option
-            const activeOption = document.querySelector('.period-option.active');
-            const currentPeriod = activeOption ? parseInt(activeOption.dataset.days) : 7;
-            this.renderHistory(currentPeriod);
+
+        hSearchInput.addEventListener('input', () => {
+            this._historySearchQuery = hSearchInput.value.trim().toLowerCase();
+            hSearchClear.style.display = this._historySearchQuery ? 'flex' : 'none';
+            this._reRenderHistory();
         });
-        
-        // Toggle empty items in history
-        document.getElementById('toggleEmptyItems')?.addEventListener('change', (e) => {
-            const specificDate = document.getElementById('specificDate').value;
-            if (specificDate) {
-                this.renderHistoryForSpecificDate(specificDate);
-            } else {
-                // Get current selected period from active option
-                const activeOption = document.querySelector('.period-option.active');
-                const currentPeriod = activeOption ? parseInt(activeOption.dataset.days) : 7;
-                this.renderHistory(currentPeriod);
+
+        hSearchClear.addEventListener('click', () => {
+            hSearchInput.value = '';
+            this._historySearchQuery = '';
+            hSearchClear.style.display = 'none';
+            hSearchInput.focus();
+            this._reRenderHistory();
+        });
+
+        hSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                hSearchWrap.classList.remove('tsf-search-open');
+                hSearchInput.value = '';
+                this._historySearchQuery = '';
+                hSearchClear.style.display = 'none';
+                this._reRenderHistory();
             }
         });
-        
+
         // Quick navigation for Today view
         document.querySelectorAll('.btn-quick-nav').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -1149,8 +1123,9 @@ class HabitTrackerApp {
                                 : '<circle cx="12" cy="12" r="9"></circle>'
                             }
                         </svg>
-                        <span>${lineText}</span>
+                        <span></span>
                     `;
+                    lineEl.querySelector('span').textContent = lineText;
 
                     lineEl.addEventListener('click', async (e) => {
                         e.stopPropagation();
@@ -1323,8 +1298,9 @@ class HabitTrackerApp {
                                 : '<circle cx="12" cy="12" r="9"></circle>'
                             }
                         </svg>
-                        <span>${lineText}</span>
+                        <span></span>
                     `;
+                    lineEl.querySelector('span').textContent = lineText;
                     lineEl.addEventListener('mousedown', async (ev) => {
                         ev.preventDefault();
                         ev.stopPropagation();
@@ -1421,27 +1397,48 @@ class HabitTrackerApp {
             Aprendizados.onHide();
         }
 
+        // Salvar posição de scroll da aba Hoje antes de sair
+        const mainContent = document.getElementById('mainContent');
+        if (this.currentView === 'today') {
+            this._todayScrollTop = window.scrollY;
+        }
+
         this.currentView = view;
         document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
         
         // Update active button state
         document.querySelectorAll('.btn-nav-header').forEach(btn => btn.classList.remove('active'));
+
+        // Ajuste de largura: histórico usa largura total, outras abas ficam no max-width padrão
+        if (mainContent) {
+            mainContent.classList.toggle('history-mode', view === 'history');
+        }
         
         if (view === 'today') {
             document.getElementById('todayView').classList.remove('hidden');
             document.getElementById('btnToday').classList.add('active');
+            this._pendingScrollRestore = true;
             this.renderTodayView();
         } else if (view === 'history') {
             document.getElementById('historyView').classList.remove('hidden');
             document.getElementById('btnHistory').classList.add('active');
-            await this.renderHistory(7);
+            window.scrollTo(0, 0);
+            // Inicializa a data do histórico no dia de hoje
+            if (!this.historyDate) {
+                this.historyDate = new Date();
+                this.historyDate.setHours(12, 0, 0, 0);
+            }
+            this._updateHistoryDateLabel();
+            await this.renderHistoryAsSpreadsheet(this.getDateString(this.historyDate));
         } else if (view === 'reports') {
             document.getElementById('reportsView').classList.remove('hidden');
             document.getElementById('btnReports').classList.add('active');
+            window.scrollTo(0, 0);
             await this.renderReports('week');
         } else if (view === 'aprendizados') {
             document.getElementById('aprendizadosView').classList.remove('hidden');
             document.getElementById('btnAprendizados').classList.add('active');
+            window.scrollTo(0, 0);
             if (typeof Aprendizados !== 'undefined') {
                 // Inicializar na primeira visita
                 if (!this._aprendizadosInited) {
@@ -1451,12 +1448,446 @@ class HabitTrackerApp {
                     Aprendizados.onShow();
                 }
             }
+        } else if (view === 'settings') {
+            document.getElementById('settingsView').classList.remove('hidden');
+            document.getElementById('btnSettings').classList.add('active');
+            window.scrollTo(0, 0);
+            this.renderSettingsView();
         }
     }
 
     changeDate(days) {
         this.currentDate.setDate(this.currentDate.getDate() + days);
         this.renderTodayView();
+    }
+
+    // ─── Settings: aplicar configurações salvas no DOM e em APP_DATA ────
+
+    /**
+     * Lê as configurações do StorageManager e aplica:
+     *  - rótulos das quick-nav e títulos de categoria
+     *  - nomes personalizados dos itens em APP_DATA (in-memory)
+     *  - ordem dos itens em APP_DATA (in-memory)
+     */
+    applySettings() {
+        const s = StorageManager.getSettings();
+
+        ['clientes', 'categorias', 'atividades'].forEach(cat => {
+            // 1. Resetar para o estado original (snapshot imutável)
+            const original = APP_DATA_ORIGINAL[cat].map(i => ({ ...i }));
+
+            // 2. Aplicar nomes customizados aos originais
+            if (s.itemNames && s.itemNames[cat]) {
+                original.forEach(item => {
+                    if (s.itemNames[cat][item.id] !== undefined) {
+                        item.name = s.itemNames[cat][item.id];
+                    }
+                });
+            }
+
+            // 3. Remover itens ocultos (hiddenItems)
+            const hidden = (s.hiddenItems && s.hiddenItems[cat]) || [];
+            const visible = original.filter(i => !hidden.includes(i.id));
+
+            // 4. Injetar itens customizados (se ainda não estiverem presentes)
+            const customList = (s.customItems && s.customItems[cat]) || [];
+            const existingIds = new Set(visible.map(i => i.id));
+            customList.forEach(ci => {
+                if (!existingIds.has(ci.id)) {
+                    const customName = (s.itemNames && s.itemNames[cat] && s.itemNames[cat][ci.id] !== undefined)
+                        ? s.itemNames[cat][ci.id]
+                        : ci.name;
+                    visible.push({ id: ci.id, name: customName });
+                }
+            });
+
+            // 5. Aplicar ordem customizada
+            if (s.itemOrder && s.itemOrder[cat] && Array.isArray(s.itemOrder[cat])) {
+                const order = s.itemOrder[cat];
+                visible.sort((a, b) => {
+                    const ai = order.indexOf(a.id);
+                    const bi = order.indexOf(b.id);
+                    if (ai === -1 && bi === -1) return 0;
+                    if (ai === -1) return 1;
+                    if (bi === -1) return -1;
+                    return ai - bi;
+                });
+            }
+
+            // 6. Substituir o array de APP_DATA
+            APP_DATA[cat].length = 0;
+            visible.forEach(i => APP_DATA[cat].push(i));
+        });
+
+        // 7. Rótulos das quick-nav (podem não estar no DOM ainda → guard)
+        this._applySettingsCategoryLabels(s);
+    }
+
+    /**
+     * Atualiza os textos dos botões .btn-quick-nav e os títulos .category-title
+     * com base nas configurações salvas.
+     */
+    _applySettingsCategoryLabels(s) {
+        if (!s || !s.categoryLabels) return;
+        const map = {
+            clientes:   { quickNav: '[data-target="category-clientes"]',   title: '#category-clientes .category-title' },
+            categorias: { quickNav: '[data-target="category-categorias"]', title: '#category-categorias .category-title' },
+            atividades: { quickNav: '[data-target="category-atividades"]', title: '#category-atividades .category-title' },
+        };
+        Object.entries(map).forEach(([cat, sel]) => {
+            const label = s.categoryLabels[cat];
+            if (!label) return;
+            const qnBtn = document.querySelector('.btn-quick-nav' + sel.quickNav);
+            if (qnBtn) qnBtn.textContent = label;
+            const titleEl = document.querySelector(sel.title);
+            if (titleEl) titleEl.textContent = label.toUpperCase();
+        });
+    }
+
+    /**
+     * Renderiza o painel de Configurações, populando os inputs e listas de itens.
+     */
+    renderSettingsView() {
+        const s = StorageManager.getSettings();
+        const cats = [
+            { key: 'clientes',   inputId: 'settingsCatLabelClientes',   listId: 'settingsItemsClientes',   addBtnId: 'settingsAddClientes',   badgeId: 'settingsBadgeClientes'   },
+            { key: 'categorias', inputId: 'settingsCatLabelCategorias', listId: 'settingsItemsCategorias', addBtnId: 'settingsAddCategorias', badgeId: 'settingsBadgeCategorias' },
+            { key: 'atividades', inputId: 'settingsCatLabelAtividades', listId: 'settingsItemsAtividades', addBtnId: 'settingsAddAtividades', badgeId: 'settingsBadgeAtividades'  },
+        ];
+
+        // IDs dos itens originais (para distinguir custom vs original ao excluir)
+        const originalIds = {
+            clientes:   new Set(APP_DATA_ORIGINAL.clientes.map(i => i.id)),
+            categorias: new Set(APP_DATA_ORIGINAL.categorias.map(i => i.id)),
+            atividades: new Set(APP_DATA_ORIGINAL.atividades.map(i => i.id)),
+        };
+
+        cats.forEach(({ key, inputId, listId, addBtnId, badgeId }) => {
+            // Preencher input de rótulo da categoria
+            const labelInput = document.getElementById(inputId);
+            if (labelInput) {
+                labelInput.value = (s.categoryLabels && s.categoryLabels[key]) || '';
+                labelInput.oninput = null;
+                labelInput.oninput = (e) => this._onCategoryLabelChange(key, e.target.value);
+            }
+
+            // Badge com contagem
+            const badge = document.getElementById(badgeId);
+            if (badge) badge.textContent = APP_DATA[key].length + ' itens';
+
+            // Botão "+ Adicionar demanda"
+            const addBtn = document.getElementById(addBtnId);
+            if (addBtn) {
+                addBtn.onclick = null;
+                addBtn.onclick = () => this._onItemAdd(key);
+            }
+
+            // Renderizar lista de itens
+            const listEl = document.getElementById(listId);
+            if (!listEl) return;
+            listEl.innerHTML = '';
+
+            APP_DATA[key].forEach((item) => {
+                const isCustom = !originalIds[key].has(item.id);
+                const customName = (s.itemNames && s.itemNames[key] && s.itemNames[key][item.id] !== undefined)
+                    ? s.itemNames[key][item.id]
+                    : item.name;
+
+                const row = document.createElement('div');
+                row.className = 'settings-item-row';
+                row.dataset.id = item.id;
+                row.dataset.cat = key;
+                row.draggable = true;
+
+                row.innerHTML = `
+                    <div class="settings-drag-handle" title="Arraste para reordenar">⠿</div>
+                    <div class="settings-item-order-btns">
+                        <button class="settings-order-btn" data-dir="up" title="Mover para cima">▲</button>
+                        <button class="settings-order-btn" data-dir="down" title="Mover para baixo">▼</button>
+                    </div>
+                    <input type="text" class="settings-item-input" value="${this._escapeHtmlAttr(customName)}" placeholder="Digite o nome..." />
+                    <button class="settings-delete-btn" title="Remover demanda">✕</button>
+                `;
+
+                // ▲▼ buttons
+                row.querySelector('[data-dir="up"]').addEventListener('click', () => this._onItemMove(key, item.id, -1));
+                row.querySelector('[data-dir="down"]').addEventListener('click', () => this._onItemMove(key, item.id, 1));
+
+                // Name change (live)
+                const nameInput = row.querySelector('.settings-item-input');
+                nameInput.addEventListener('input', () => this._onItemNameChange(key, item.id, nameInput.value));
+
+                // Focus highlight on row
+                nameInput.addEventListener('focus', () => row.classList.add('settings-item-row--editing'));
+                nameInput.addEventListener('blur',  () => row.classList.remove('settings-item-row--editing'));
+
+                // Delete button with inline confirmation
+                const deleteBtn = row.querySelector('.settings-delete-btn');
+                deleteBtn.addEventListener('click', () => {
+                    if (deleteBtn.dataset.confirming === '1') {
+                        this._onItemDelete(key, item.id, isCustom);
+                    } else {
+                        deleteBtn.dataset.confirming = '1';
+                        deleteBtn.textContent = '?';
+                        deleteBtn.classList.add('settings-delete-btn--confirm');
+                        setTimeout(() => {
+                            if (deleteBtn.dataset.confirming === '1') {
+                                delete deleteBtn.dataset.confirming;
+                                deleteBtn.textContent = '✕';
+                                deleteBtn.classList.remove('settings-delete-btn--confirm');
+                            }
+                        }, 2500);
+                    }
+                });
+
+                listEl.appendChild(row);
+            });
+
+            // Ativar drag-and-drop nesta lista
+            this._initDragDrop(listEl, key);
+        });
+    }
+
+    /** Inicializa drag-and-drop HTML5 em uma settings-items-list */
+    _initDragDrop(listEl, cat) {
+        let dragSrc = null;
+
+        listEl.addEventListener('dragstart', (e) => {
+            const row = e.target.closest('.settings-item-row');
+            if (!row) return;
+            dragSrc = row;
+            row.classList.add('settings-item-row--dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', row.dataset.id);
+        });
+
+        listEl.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const row = e.target.closest('.settings-item-row');
+            if (!row || row === dragSrc) return;
+            // Indicador visual de posição
+            listEl.querySelectorAll('.settings-item-row').forEach(r => r.classList.remove('settings-item-row--dragover'));
+            row.classList.add('settings-item-row--dragover');
+        });
+
+        listEl.addEventListener('dragleave', (e) => {
+            const row = e.target.closest('.settings-item-row');
+            if (row) row.classList.remove('settings-item-row--dragover');
+        });
+
+        listEl.addEventListener('dragend', () => {
+            listEl.querySelectorAll('.settings-item-row').forEach(r => {
+                r.classList.remove('settings-item-row--dragging', 'settings-item-row--dragover');
+            });
+            dragSrc = null;
+        });
+
+        listEl.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const target = e.target.closest('.settings-item-row');
+            if (!target || !dragSrc || target === dragSrc) return;
+
+            // Reordenar baseado na posição DOM atual (após drop)
+            const rows = [...listEl.querySelectorAll('.settings-item-row')];
+            const fromIdx = rows.indexOf(dragSrc);
+            const toIdx   = rows.indexOf(target);
+            if (fromIdx === -1 || toIdx === -1) return;
+
+            // Determinar se insere antes ou depois
+            const targetRect = target.getBoundingClientRect();
+            const midY = targetRect.top + targetRect.height / 2;
+            const insertBefore = e.clientY < midY;
+
+            if (insertBefore) {
+                listEl.insertBefore(dragSrc, target);
+            } else {
+                listEl.insertBefore(dragSrc, target.nextSibling);
+            }
+
+            // Reconstruir ordem a partir da DOM atual
+            const newOrder = [...listEl.querySelectorAll('.settings-item-row')].map(r => r.dataset.id);
+
+            // Atualizar APP_DATA com a nova ordem
+            const items = APP_DATA[cat];
+            const reordered = newOrder.map(id => items.find(i => i.id === id)).filter(Boolean);
+            // Adicionar itens que não apareceram no DOM (edge case)
+            items.forEach(i => { if (!reordered.find(r => r.id === i.id)) reordered.push(i); });
+            APP_DATA[cat].length = 0;
+            reordered.forEach(i => APP_DATA[cat].push(i));
+
+            // Persistir ordem
+            const s = StorageManager.getSettings();
+            if (!s.itemOrder) s.itemOrder = {};
+            s.itemOrder[cat] = APP_DATA[cat].map(i => i.id);
+            StorageManager.saveSettings(s);
+
+            // Atualizar badge
+            const badgeMap = { clientes: 'settingsBadgeClientes', categorias: 'settingsBadgeCategorias', atividades: 'settingsBadgeAtividades' };
+            const badge = document.getElementById(badgeMap[cat]);
+            if (badge) badge.textContent = APP_DATA[cat].length + ' itens';
+
+            // Re-renderizar today/history para refletir nova ordem
+            this._reRenderAfterSettingsChange();
+        });
+    }
+
+    /** Adiciona uma nova demanda customizada a uma categoria */
+    _onItemAdd(cat) {
+        const newId   = 'custom_' + Date.now();
+        const newName = 'Nova demanda';
+
+        const s = StorageManager.getSettings();
+        if (!s.customItems) s.customItems = { clientes: [], categorias: [], atividades: [] };
+        if (!s.customItems[cat]) s.customItems[cat] = [];
+        s.customItems[cat].push({ id: newId, name: newName });
+
+        // Adicionar ao final de APP_DATA em memória
+        APP_DATA[cat].push({ id: newId, name: newName });
+
+        // Persistir ordem (incluindo novo item)
+        if (!s.itemOrder) s.itemOrder = {};
+        s.itemOrder[cat] = APP_DATA[cat].map(i => i.id);
+        StorageManager.saveSettings(s);
+
+        // Re-renderizar settings e views
+        this.renderSettingsView();
+        this._reRenderAfterSettingsChange();
+
+        // Focar no input do novo item para edição imediata
+        requestAnimationFrame(() => {
+            const listIdMap = { clientes: 'settingsItemsClientes', categorias: 'settingsItemsCategorias', atividades: 'settingsItemsAtividades' };
+            const listEl = document.getElementById(listIdMap[cat]);
+            if (!listEl) return;
+            const rows = listEl.querySelectorAll('.settings-item-row');
+            const lastRow = rows[rows.length - 1];
+            if (lastRow) {
+                const inp = lastRow.querySelector('.settings-item-input');
+                if (inp) { inp.select(); inp.focus(); }
+            }
+        });
+    }
+
+    /** Remove (oculta ou apaga) uma demanda */
+    _onItemDelete(cat, itemId, isCustom) {
+        const s = StorageManager.getSettings();
+
+        if (isCustom) {
+            // Item customizado: remover de customItems
+            if (s.customItems && s.customItems[cat]) {
+                s.customItems[cat] = s.customItems[cat].filter(i => i.id !== itemId);
+            }
+            // Limpar nome customizado se houver
+            if (s.itemNames && s.itemNames[cat]) {
+                delete s.itemNames[cat][itemId];
+            }
+        } else {
+            // Item original: adicionar a hiddenItems
+            if (!s.hiddenItems) s.hiddenItems = { clientes: [], categorias: [], atividades: [] };
+            if (!s.hiddenItems[cat]) s.hiddenItems[cat] = [];
+            if (!s.hiddenItems[cat].includes(itemId)) {
+                s.hiddenItems[cat].push(itemId);
+            }
+        }
+
+        // Remover da ordem salva
+        if (s.itemOrder && s.itemOrder[cat]) {
+            s.itemOrder[cat] = s.itemOrder[cat].filter(id => id !== itemId);
+        }
+
+        StorageManager.saveSettings(s);
+
+        // Remover de APP_DATA em memória
+        const idx = APP_DATA[cat].findIndex(i => i.id === itemId);
+        if (idx !== -1) APP_DATA[cat].splice(idx, 1);
+
+        // Re-renderizar
+        this.renderSettingsView();
+        this._reRenderAfterSettingsChange();
+    }
+
+    /** Re-renderiza today e/ou history após mudanças de settings */
+    _reRenderAfterSettingsChange() {
+        if (this.currentView === 'today') {
+            this.renderTodayView();
+        } else if (this.currentView === 'history') {
+            this._reRenderHistory();
+        }
+        // Nas outras views, a próxima visita ao today/history vai usar APP_DATA atualizado
+    }
+
+    /** Chamado quando o usuário muda o rótulo de uma categoria */
+    _onCategoryLabelChange(cat, newLabel) {
+        const s = StorageManager.getSettings();
+        if (!s.categoryLabels) s.categoryLabels = {};
+        s.categoryLabels[cat] = newLabel;
+        StorageManager.saveSettings(s);
+        this._applySettingsCategoryLabels(s);
+    }
+
+    /** Chamado quando o usuário muda o nome de um item */
+    _onItemNameChange(cat, itemId, newName) {
+        const s = StorageManager.getSettings();
+        if (!s.itemNames) s.itemNames = {};
+        if (!s.itemNames[cat]) s.itemNames[cat] = {};
+        s.itemNames[cat][itemId] = newName;
+        StorageManager.saveSettings(s);
+
+        // Atualizar nome em APP_DATA (memória)
+        const item = APP_DATA[cat].find(i => i.id === itemId);
+        if (item) item.name = newName;
+
+        // Atualizar .item-name em todayView em tempo real
+        document.querySelectorAll(`.item[data-item-id="${itemId}"] .item-name`).forEach(el => {
+            el.textContent = newName;
+        });
+    }
+
+    /** Chamado quando o usuário move um item ▲ ou ▼ */
+    _onItemMove(cat, itemId, direction) {
+        const items = APP_DATA[cat];
+        const idx = items.findIndex(i => i.id === itemId);
+        if (idx === -1) return;
+        const newIdx = idx + direction;
+        if (newIdx < 0 || newIdx >= items.length) return;
+
+        // Trocar posições em APP_DATA (memória)
+        [items[idx], items[newIdx]] = [items[newIdx], items[idx]];
+
+        // Persistir ordem
+        const s = StorageManager.getSettings();
+        if (!s.itemOrder) s.itemOrder = {};
+        s.itemOrder[cat] = items.map(i => i.id);
+        StorageManager.saveSettings(s);
+
+        // Re-renderizar settings e views
+        this.renderSettingsView();
+        this._reRenderAfterSettingsChange();
+    }
+
+    changeHistoryDate(days) {
+        if (!this.historyDate) {
+            this.historyDate = new Date();
+            this.historyDate.setHours(12, 0, 0, 0);
+        }
+        this.historyDate.setDate(this.historyDate.getDate() + days);
+        this._updateHistoryDateLabel();
+        this.renderHistoryAsSpreadsheet(this.getDateString(this.historyDate));
+    }
+
+    _reRenderHistory() {
+        if (!this.historyDate) {
+            this.historyDate = new Date();
+            this.historyDate.setHours(12, 0, 0, 0);
+        }
+        this.renderHistoryAsSpreadsheet(this.getDateString(this.historyDate));
+    }
+
+    _updateHistoryDateLabel() {
+        const el = document.getElementById('historyCurrentDate');
+        if (el && this.historyDate) {
+            el.textContent = this.formatDate(this.historyDate);
+        }
     }
 
     // ─── Barra Semanal ────────────────────────────────────────────────────────
@@ -2380,7 +2811,14 @@ class HabitTrackerApp {
         ]).then(() => {
             this._applyTodayFilter();
             // Re-sincroniza alturas após render completo (importante para iOS PWA)
-            requestAnimationFrame(() => this._syncHeaderHeight());
+            requestAnimationFrame(() => {
+                this._syncHeaderHeight();
+                // Restaurar scroll da aba Hoje após DOM totalmente montado
+                if (this._pendingScrollRestore) {
+                    this._pendingScrollRestore = false;
+                    window.scrollTo({ top: this._todayScrollTop || 0, behavior: 'instant' });
+                }
+            });
         });
     }
 
@@ -2389,7 +2827,19 @@ class HabitTrackerApp {
         const query  = (this._todaySearchQuery || '').toLowerCase().trim();
 
         document.querySelectorAll('#todayView .item').forEach(itemEl => {
-            const statusOk = filter === 'all' || itemEl.classList.contains('status-' + filter);
+            // Filtro de status
+            let statusOk;
+            if (filter === 'all') {
+                statusOk = true;
+            } else if (filter === 'sem-nota') {
+                // Tem nota se: .item-note existe OU .item-note-editable tem texto
+                const noteDisplay  = itemEl.querySelector('.item-note');
+                const noteEditable = itemEl.querySelector('.item-note-editable');
+                const hasNote = !!(noteDisplay) || !!(noteEditable && noteEditable.innerText.trim());
+                statusOk = !hasNote;
+            } else {
+                statusOk = itemEl.classList.contains('status-' + filter);
+            }
 
             let searchOk = true;
             if (query) {
@@ -2406,12 +2856,12 @@ class HabitTrackerApp {
                     if (searchOk) {
                         const idx = originalName.toLowerCase().indexOf(query);
                         if (idx >= 0) {
-                            nameEl.innerHTML = originalName.slice(0, idx)
-                                + '<mark class="tsf-highlight">' + originalName.slice(idx, idx + query.length) + '</mark>'
-                                + originalName.slice(idx + query.length);
+                            nameEl.innerHTML = this._escapeHtml(originalName.slice(0, idx))
+                                + '<mark class="tsf-highlight">' + this._escapeHtml(originalName.slice(idx, idx + query.length)) + '</mark>'
+                                + this._escapeHtml(originalName.slice(idx + query.length));
                         }
                     } else {
-                        nameEl.innerHTML = originalName;
+                        nameEl.textContent = originalName;
                     }
                 }
             } else {
@@ -2482,7 +2932,7 @@ class HabitTrackerApp {
                 const tagItems = itemData.links.map(lnk => {
                     const linkedItem = (APP_DATA[lnk.category] || []).find(i => i.id === lnk.itemId);
                     const name = linkedItem ? linkedItem.name : lnk.itemId;
-                    return `<span class="item-link-tag" data-link-cat="${lnk.category}" data-link-id="${lnk.itemId}" title="Vinculado a ${name}">🔗 ${this._escapeHtml(name)}<button class="item-link-tag-remove" data-link-cat="${lnk.category}" data-link-id="${lnk.itemId}">✕</button></span>`;
+                    return `<span class="item-link-tag" data-link-cat="${lnk.category}" data-link-id="${lnk.itemId}" title="Vinculado a ${this._escapeHtml(name)}">🔗 ${this._escapeHtml(name)}<button class="item-link-tag-remove" data-link-cat="${lnk.category}" data-link-id="${lnk.itemId}">✕</button></span>`;
                 }).join('');
                 linkTagsHtml = `<div class="item-link-tags" data-item-id="${item.id}" data-category="${category}">${tagItems}</div>`;
             }
@@ -3020,8 +3470,20 @@ class HabitTrackerApp {
     // Convert URLs in text to clickable links
     linkifyText(text) {
         const urlRegex = /(https?:\/\/[^\s]+)/g;
-        return text.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" class="note-link">$1</a>')
-                   .replace(/\n/g, '<br>');
+        // Split on URLs, escape non-URL parts, wrap URLs in <a>
+        return text
+            .split('\n')
+            .map(line => {
+                const parts = line.split(urlRegex);
+                return parts.map((part, i) => {
+                    // Odd indices are URL capture groups
+                    if (i % 2 === 1) {
+                        return `<a href="${this._escapeHtml(part)}" target="_blank" rel="noopener noreferrer" class="note-link">${this._escapeHtml(part)}</a>`;
+                    }
+                    return this._escapeHtml(part);
+                }).join('');
+            })
+            .join('<br>');
     }
 
     // Build note HTML, rendering 🧠, 🚫 and ⏳ lines as colored status tags
@@ -3061,7 +3523,13 @@ class HabitTrackerApp {
             } else {
                 // Não transformar [img:...] em link — apenas URLs puras
                 const urlRegex = /(https?:\/\/[^\s\]]+)/g;
-                const linked = line.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" class="note-link">$1</a>');
+                const parts = line.split(urlRegex);
+                const linked = parts.map((part, i) => {
+                    if (i % 2 === 1) {
+                        return `<a href="${this._escapeHtml(part)}" target="_blank" rel="noopener noreferrer" class="note-link">${this._escapeHtml(part)}</a>`;
+                    }
+                    return this._escapeHtml(part);
+                }).join('');
                 textParts.push(linked);
             }
         }
@@ -3074,6 +3542,11 @@ class HabitTrackerApp {
 
     _escapeHtml(str) {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    _escapeHtmlAttr(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // Extrai texto de um contentEditable preservando quebras de linha corretamente
@@ -3162,12 +3635,13 @@ class HabitTrackerApp {
         const editor = document.createElement('div');
         editor.className = 'inline-editor';
         editor.innerHTML = `
-            <textarea class="inline-textarea" placeholder="Escreva sua nota...">${noteText}</textarea>
+            <textarea class="inline-textarea" placeholder="Escreva sua nota..."></textarea>
             <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
                 <button class="btn-inline-save">Salvar</button>
                 <button class="btn-inline-cancel">Cancelar</button>
             </div>
         `;
+        editor.querySelector('.inline-textarea').value = noteText;
 
         // Insert editor after header
         const header = itemEl.querySelector('.item-header');
@@ -3278,6 +3752,213 @@ class HabitTrackerApp {
         // Atualizar ícone do Google Search
         const googleBtn = itemEl.querySelector('.btn-google-search');
         if (googleBtn) googleBtn.style.display = 'inline-flex';
+    }
+
+    async renderHistoryAsSpreadsheet(dateStr) {
+        const container = document.getElementById('historyContent');
+        const statusFilter = this._activeHistoryFilter || 'all';
+        const searchQuery  = (this._historySearchQuery || '').toLowerCase().trim();
+
+        container.innerHTML = '';
+
+        const date = new Date(dateStr + 'T12:00:00');
+        const dayData = await StorageManager.getDateData(dateStr);
+
+        // Build categorized items (same logic as createDayCard)
+        const categoryConfig = [
+            { key: 'clientes',   emoji: '👥', label: 'CLIENTES',  color: '#95d3ee' },
+            { key: 'categorias', emoji: '🏢', label: 'EMPRESA',   color: '#f59e0b' },
+            { key: 'atividades', emoji: '👤', label: 'PESSOAL',   color: '#a78bfa' }
+        ];
+
+        const dayOfWeek = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][date.getDay()];
+        const dayNum    = date.getDate();
+        const month     = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][date.getMonth()];
+        const year      = date.getFullYear();
+
+        // Header do dia
+        const dayHeader = document.createElement('div');
+        dayHeader.className = 'hs-day-header';
+        dayHeader.innerHTML = `
+            <span class="hs-day-name">${dayOfWeek}</span>
+            <span class="hs-day-date">${dayNum} de ${month} de ${year}</span>
+        `;
+        container.appendChild(dayHeader);
+
+        const statusColors = {
+            'concluido':         '#22c55e',
+            'concluido-ongoing': '#22c55e',
+            'em-andamento':      '#eab308',
+            'nao-feito':         '#ef4444',
+            'bloqueado':         'rgba(239,68,68,0.6)',
+            'aguardando':        '#95d3ee',
+            'parcialmente':      '#f97316',
+            'prioridade':        '#a855f7',
+            'pular':             'rgba(255,255,255,0.25)',
+            'none':              'transparent'
+        };
+        const statusLabels = {
+            'concluido':         'Concluído',
+            'concluido-ongoing': 'Concluído',
+            'em-andamento':      'Em Andamento',
+            'nao-feito':         'Não Feito',
+            'bloqueado':         'Bloqueado',
+            'aguardando':        'Aguardando',
+            'parcialmente':      'Parcialmente',
+            'prioridade':        'Prioridade',
+            'pular':             'Pulado',
+            'none':              '—'
+        };
+
+        let hasAny = false;
+
+        for (const cat of categoryConfig) {
+            const catRawData = dayData[cat.key] || {};
+            const catItemDefs = APP_DATA[cat.key] || [];
+
+            // Collect items for this category
+            const rows = [];
+            for (const itemDef of catItemDefs) {
+                const rawItem = catRawData[itemDef.id];
+                const status  = rawItem ? (typeof rawItem === 'string' ? rawItem : rawItem.status || 'none') : 'none';
+                const note    = rawItem ? (typeof rawItem === 'string' ? '' : rawItem.note || '') : '';
+
+                // Filtro de status
+                if (statusFilter !== 'all') {
+                    if (statusFilter === 'none') {
+                        if (status !== 'none') continue;
+                    } else if (statusFilter === 'sem-nota') {
+                        if (note.trim()) continue;
+                    } else {
+                        if (status !== statusFilter && !(statusFilter === 'concluido' && status === 'concluido-ongoing')) continue;
+                    }
+                }
+
+                // Filtro de busca
+                if (searchQuery && !itemDef.name.toLowerCase().includes(searchQuery) && !note.toLowerCase().includes(searchQuery)) continue;
+
+                // Ocultar completamente vazios só se filtro = all e sem busca
+                if (statusFilter === 'all' && !searchQuery) {
+                    const isEmpty = (!status || status === 'none') && (!note || !note.trim());
+                    if (isEmpty) continue;
+                }
+
+                rows.push({ name: itemDef.name, status, note });
+            }
+
+            if (rows.length === 0) continue;
+            hasAny = true;
+
+            // Bloco da categoria
+            const catBlock = document.createElement('div');
+            catBlock.className = 'hs-cat-block';
+
+            // Cabeçalho da categoria
+            const catHeader = document.createElement('div');
+            catHeader.className = 'hs-cat-header';
+            catHeader.style.setProperty('--cat-color', cat.color);
+            catHeader.innerHTML = `<span class="hs-cat-emoji">${cat.emoji}</span><span class="hs-cat-label">${cat.label}</span>`;
+            catBlock.appendChild(catHeader);
+
+            // Tabela real HTML
+            const table = document.createElement('table');
+            table.className = 'hs-table';
+
+            // Cabeçalho da tabela
+            const thead = document.createElement('thead');
+            thead.className = 'hs-thead';
+            thead.innerHTML = `
+                <tr>
+                    <th class="hs-th hs-col-demanda">Demanda</th>
+                    <th class="hs-th hs-col-status">Status</th>
+                    <th class="hs-th hs-col-notas">Notas</th>
+                    <th class="hs-th hs-col-obs">Observações</th>
+                </tr>
+            `;
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            table.appendChild(tbody);
+
+            // Linhas de dados
+            for (const row of rows) {
+                const sColor = statusColors[row.status] || 'transparent';
+                const sLabel = statusLabels[row.status] || '—';
+                const hasNote = row.note && row.note.trim();
+
+                // ── Parser da nota: cada linha vira uma row na tabela ─────────
+                // Separa em: notasLines, obsLines
+                const notasLines = [];
+                const obsLines   = [];
+
+                if (hasNote) {
+                    for (const line of row.note.trim().split('\n')) {
+                        const t = line.trim();
+                        if (!t) continue;
+                        if (/^(🧠|🚫|⏳)/.test(t)) {
+                            obsLines.push(t);
+                        } else {
+                            notasLines.push(t);
+                        }
+                    }
+                }
+
+                // Quantas linhas a demanda vai ocupar (mínimo 1)
+                const rowCount = Math.max(notasLines.length, obsLines.length, 1);
+
+                // Formata badge de obs
+                const fmtObs = (t) => {
+                    if (!t) return '';
+                    if (t.startsWith('🧠')) return `<span class="hs-obs-badge hs-obs-aprendizado">${this.linkifyText(t)}</span>`;
+                    if (t.startsWith('🚫')) return `<span class="hs-obs-badge hs-obs-bloqueado">${this.linkifyText(t)}</span>`;
+                    if (t.startsWith('⏳')) return `<span class="hs-obs-badge hs-obs-parcial">${this.linkifyText(t)}</span>`;
+                    return `<span class="hs-obs-badge">${this.linkifyText(t)}</span>`;
+                };
+
+                for (let i = 0; i < rowCount; i++) {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hs-tr' + (i > 0 ? ' hs-tr-cont' : '');
+
+                    const notaCell  = notasLines[i] ? this.linkifyText(notasLines[i]) : '<span class="hs-empty-cell">—</span>';
+                    const obsCell   = obsLines[i]   ? fmtObs(obsLines[i])            : '<span class="hs-empty-cell">—</span>';
+
+                    if (i === 0) {
+                        // Primeira linha: inclui demanda e status com rowspan
+                        tr.innerHTML = `
+                            <td class="hs-td hs-col-demanda" rowspan="${rowCount}">
+                                <span class="hs-demanda-name">${row.name}</span>
+                            </td>
+                            <td class="hs-td hs-col-status" rowspan="${rowCount}">
+                                <div class="hs-status-inner">
+                                    ${row.status !== 'none'
+                                        ? `<span class="hs-status-dot" style="background:${sColor}; box-shadow:0 0 6px ${sColor};"></span>`
+                                        : `<span class="hs-status-dot hs-dot-empty"></span>`
+                                    }
+                                    <span class="hs-status-label" style="color:${row.status !== 'none' ? sColor : 'rgba(255,255,255,0.25)'};">${sLabel}</span>
+                                </div>
+                            </td>
+                            <td class="hs-td hs-col-notas hs-text-cell">${notaCell}</td>
+                            <td class="hs-td hs-col-obs hs-text-cell">${obsCell}</td>
+                        `;
+                    } else {
+                        // Linhas continuação: só notas / obs
+                        tr.innerHTML = `
+                            <td class="hs-td hs-col-notas hs-text-cell">${notaCell}</td>
+                            <td class="hs-td hs-col-obs hs-text-cell">${obsCell}</td>
+                        `;
+                    }
+
+                    tbody.appendChild(tr);
+                }
+            }
+
+            catBlock.appendChild(table);
+            container.appendChild(catBlock);
+        }
+
+        if (!hasAny) {
+            this.renderEmptyHistoryState(container);
+        }
     }
 
     async renderHistoryForSpecificDate(dateStr) {

@@ -67,3 +67,10 @@ const STATUS_CONFIG = {
     'parcialmente': { emoji: '', label: 'Parcialmente concluído', score: 0.7 },
     'prioridade': { emoji: '', label: 'Prioridade', score: 0 }
 };
+
+// Snapshot imutável dos itens originais — usado por applySettings() para rebuild
+const APP_DATA_ORIGINAL = {
+    clientes:   APP_DATA.clientes.map(i => ({ ...i })),
+    categorias: APP_DATA.categorias.map(i => ({ ...i })),
+    atividades: APP_DATA.atividades.map(i => ({ ...i })),
+};

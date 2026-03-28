@@ -62,7 +62,6 @@ window.addEventListener('load', async function checkAuth() {
         }
         
         // Usuário autenticado
-        console.log('Usuário autenticado:', session.user.email);
         currentUser = session.user;
         updateUserInfo();
         
