@@ -634,6 +634,18 @@ class HabitTrackerApp {
         document.getElementById('btnAprendizados').addEventListener('click', () => this.showView('aprendizados'));
         document.getElementById('btnSettings').addEventListener('click', () => this.showView('settings'));
 
+        // Histórico → navegar para item no Hoje ao clicar na linha
+        document.getElementById('historyContent').addEventListener('click', (e) => {
+            const tr = e.target.closest('tr.hs-tr-nav');
+            if (!tr) return;
+            const itemId   = tr.dataset.itemId;
+            const category = tr.dataset.category;
+            if (!itemId || !category) return;
+            this._pendingHighlightItemId  = itemId;
+            this._pendingHighlightCategory = category;
+            this.showView('today');
+        });
+
         // Date navigation
         document.getElementById('btnPrevDay').addEventListener('click', () => this.changeDate(-1));
         document.getElementById('btnNextDay').addEventListener('click', () => this.changeDate(1));
@@ -2860,6 +2872,20 @@ class HabitTrackerApp {
             // Re-sincroniza alturas após render completo (importante para iOS PWA)
             requestAnimationFrame(() => {
                 this._syncHeaderHeight();
+                // Navegar até item vindo do histórico
+                if (this._pendingHighlightItemId) {
+                    const itemId   = this._pendingHighlightItemId;
+                    const category = this._pendingHighlightCategory;
+                    this._pendingHighlightItemId   = null;
+                    this._pendingHighlightCategory = null;
+                    const el = document.querySelector(`.item[data-item-id="${itemId}"][data-category="${category}"]`);
+                    if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        el.classList.add('item-highlight-pulse');
+                        el.addEventListener('animationend', () => el.classList.remove('item-highlight-pulse'), { once: true });
+                    }
+                    return; // não restaurar scroll antigo
+                }
                 // Restaurar scroll da aba Hoje após DOM totalmente montado
                 if (this._pendingScrollRestore) {
                     this._pendingScrollRestore = false;
@@ -3974,7 +4000,7 @@ class HabitTrackerApp {
                     if (isEmpty) continue;
                 }
 
-                rows.push({ name: itemDef.name, status, note });
+                rows.push({ name: itemDef.name, status, note, id: itemDef.id, category: cat.key });
             }
 
             if (rows.length === 0) continue;
@@ -4048,7 +4074,12 @@ class HabitTrackerApp {
 
                 for (let i = 0; i < rowCount; i++) {
                     const tr = document.createElement('tr');
-                    tr.className = 'hs-tr' + (i > 0 ? ' hs-tr-cont' : '');
+                    tr.className = 'hs-tr' + (i > 0 ? ' hs-tr-cont' : '') + (i === 0 ? ' hs-tr-nav' : '');
+                    if (i === 0) {
+                        tr.dataset.itemId   = row.id;
+                        tr.dataset.category = row.category;
+                        tr.title = 'Ver no Hoje';
+                    }
 
                     const notaCell  = notasLines[i] ? this.linkifyText(notasLines[i]) : '<span class="hs-empty-cell">—</span>';
                     const obsCell   = obsLines[i]   ? fmtObs(obsLines[i])            : '<span class="hs-empty-cell">—</span>';

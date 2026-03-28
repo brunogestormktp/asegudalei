@@ -5433,6 +5433,36 @@ mark.tsf-highlight {
     background: rgba(149, 211, 238, 0.07);
 }
 
+/* Linhas clicáveis do histórico */
+.hs-tr-nav {
+    cursor: pointer;
+}
+.hs-tr-nav:hover {
+    background: rgba(149, 211, 238, 0.13);
+}
+.hs-tr-nav:hover .hs-demanda-name {
+    color: var(--azul-claro);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+/* Animação de destaque: círculos rápidos ao redor do item */
+@keyframes item-pulse-ring {
+    0%   { box-shadow: 0 0 0 0px rgba(149, 211, 238, 0.7); }
+    40%  { box-shadow: 0 0 0 10px rgba(149, 211, 238, 0.25); }
+    70%  { box-shadow: 0 0 0 20px rgba(149, 211, 238, 0.08); }
+    100% { box-shadow: 0 0 0 28px rgba(149, 211, 238, 0); }
+}
+
+.item-highlight-pulse {
+    animation:
+        item-pulse-ring 0.45s ease-out,
+        item-pulse-ring 0.45s ease-out 0.5s,
+        item-pulse-ring 0.45s ease-out 1.0s;
+    animation-fill-mode: forwards;
+    border-radius: 12px;
+}
+
 /* Células base */
 .hs-td {
     padding: 9px 14px;
