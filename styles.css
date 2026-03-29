@@ -5476,7 +5476,7 @@ mark.tsf-highlight {
 /* ── Mobile (≤768px) ──────────────────────────────────────── */
 @media (max-width: 768px) {
     .aprend-layout {
-        height: calc(100vh - 60px);
+        height: calc(100vh - 60px - env(safe-area-inset-bottom, 0px));
         overflow: hidden;
     }
 
@@ -5507,7 +5507,7 @@ mark.tsf-highlight {
     /* Botão nova nota: fixo na viewport no mobile */
     .aprend-btn-new-note {
         position: fixed;
-        bottom: 22px;
+        bottom: calc(22px + env(safe-area-inset-bottom, 0px));
         right: 16px;
         z-index: 999;
     }
@@ -5519,7 +5519,7 @@ mark.tsf-highlight {
 
     /* Espaço para o botão flutuante não cobrir o último item */
     #aprendNotesList {
-        padding-bottom: 80px;
+        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
     }
 
     .aprend-options-menu { right: 8px; left: 8px; min-width: unset; }
