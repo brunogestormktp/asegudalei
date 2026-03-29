@@ -126,8 +126,12 @@ const Aprendizados = (() => {
     function saveAllSync(data) {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) { console.warn(e); }
         if (typeof StorageManager !== 'undefined') {
+            // Push imediato: notas de Aprendizados devem chegar ao Supabase o mais rápido
+            // possível para que outros dispositivos recebam via Realtime/polling.
+            // Usamos debounce curto (300ms) apenas para agrupar edições em rajada
+            // (ex: digitação rápida), mas bem menor que os 800ms anteriores.
             clearTimeout(_syncTimer);
-            _syncTimer = setTimeout(() => StorageManager.saveAprendizados(data), SYNC_DEBOUNCE);
+            _syncTimer = setTimeout(() => StorageManager.saveAprendizados(data), 300);
         }
     }
 
@@ -1183,6 +1187,19 @@ const Aprendizados = (() => {
         const hits = [];
         const all = loadAll();
 
+        // ── Seção 1: Itens da aba Hoje que batem com a busca ──────────
+        const catIcons = { clientes: '👥', categorias: '🏢', atividades: '👤' };
+        const todayItems = [];
+        Object.keys(getCategoryLabels()).forEach(cat => {
+            (APP_DATA[cat] || []).forEach(item => {
+                const cleanName = item.name.replace(/^✅\s*/, '');
+                if (cleanName.toLowerCase().includes(termLow)) {
+                    todayItems.push({ cat, item, cleanName });
+                }
+            });
+        });
+
+        // ── Seção 2: Notas que batem com a busca ───────────────────────
         Object.keys(getCategoryLabels()).forEach(cat => {
             (APP_DATA[cat] || []).forEach(item => {
                 normalizeToNotes(all[cat]?.[item.id]).forEach(note => {
@@ -1200,12 +1217,41 @@ const Aprendizados = (() => {
             });
         });
 
-        if (hits.length === 0) {
+        if (todayItems.length === 0 && hits.length === 0) {
             resultsEl.innerHTML = `<div class="aprend-search-empty">Nenhum resultado para "<b>${escHtml(term)}</b>"</div>`;
             return;
         }
 
-        resultsEl.innerHTML = hits.map((h, i) => {
+        let html = '';
+
+        // Renderiza seção de categorias (itens da aba Hoje)
+        if (todayItems.length > 0) {
+            html += `<div class="aprend-search-section-title">📅 Ir para categoria</div>`;
+            html += todayItems.map((t, i) => {
+                const catLabel = getCategoryLabels()[t.cat].replace(/^\S+\s/, '');
+                const icon = catIcons[t.cat] || '📁';
+                return `
+                <div class="aprend-search-cat-row" data-today-idx="${i}">
+                    <span class="aprend-search-cat-icon">${icon}</span>
+                    <div class="aprend-search-cat-info">
+                        <div class="aprend-search-cat-name">${highlight(t.cleanName, term)}</div>
+                        <div class="aprend-search-cat-sub">${escHtml(catLabel)}</div>
+                    </div>
+                    <svg class="aprend-search-cat-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>`;
+            }).join('');
+        }
+
+        // Separador entre seções
+        if (todayItems.length > 0 && hits.length > 0) {
+            html += `<div class="aprend-search-divider"></div>`;
+            html += `<div class="aprend-search-section-title">📝 Notas encontradas</div>`;
+        } else if (hits.length > 0) {
+            html += `<div class="aprend-search-section-title">📝 Notas encontradas</div>`;
+        }
+
+        // Renderiza notas encontradas
+        html += hits.map((h, i) => {
             const cleanName = h.item.name.replace(/^✅\s*/, '');
             const catLabel  = getCategoryLabels()[h.cat].replace(/^\S+\s/, '');
             return `
@@ -1216,6 +1262,25 @@ const Aprendizados = (() => {
             </div>`;
         }).join('');
 
+        resultsEl.innerHTML = html;
+
+        // Clique nos itens da aba Hoje → navega para a subpasta do item
+        resultsEl.querySelectorAll('.aprend-search-cat-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const t = todayItems[parseInt(row.dataset.todayIdx)];
+                nav.category = t.cat;
+                nav.itemId   = t.item.id;
+                nav.noteId   = null;
+                document.getElementById('aprendSearch').value = '';
+                renderSearch('');
+                renderFolders();
+                renderSubfolders();
+                renderNotesList();
+                navigateTo('notes');
+            });
+        });
+
+        // Clique nas notas → abre o editor
         resultsEl.querySelectorAll('.aprend-search-result').forEach(row => {
             row.addEventListener('click', () => {
                 const h = hits[parseInt(row.dataset.idx)];
@@ -1344,22 +1409,61 @@ const Aprendizados = (() => {
         // Se há navegação pendente vinda de openItem, usa ela em vez de restaurar do storage
         if (_pendingOpenNav) {
             _applyPendingNav();
-            return;
-        }
-        restoreNav();
-        renderFolders();
-        if (nav.category === '__recent__') {
-            renderRecentNotes();
-            navigateTo('notes');
         } else {
-            if (nav.category) renderSubfolders();
-            if (nav.itemId)   renderNotesList();
-            if (nav.noteId)   renderEditor();
+            restoreNav();
+            renderFolders();
+            if (nav.category === '__recent__') {
+                renderRecentNotes();
+                navigateTo('notes');
+            } else {
+                if (nav.category) renderSubfolders();
+                if (nav.itemId)   renderNotesList();
+                if (nav.noteId)   renderEditor();
+            }
+            _applyLayout();
         }
-        _applyLayout();
+
+        // ── Iniciar Realtime dedicado para Aprendizados ──────────────────
+        // Enquanto a aba estiver aberta, ouvir mudanças em tempo real.
+        // Se o Supabase Realtime não estiver disponível, usa polling a 5s.
+        if (typeof StorageManager !== 'undefined') {
+            const userId = StorageManager.getUserId?.();
+            if (userId) {
+                StorageManager.startAprendizadosRealtime(userId);
+            }
+        }
     }
 
-    function onHide() { _flushNote(); }
+    function onHide() {
+        _flushNote();
+        // Encerrar o canal Realtime ao sair da aba — economiza recursos e evita listeners órfãos
+        if (typeof StorageManager !== 'undefined') {
+            StorageManager.stopAprendizadosRealtime?.();
+        }
+    }
+
+    // refreshFromRemote — chamado pelo StorageManager quando dados chegam de outro dispositivo
+    // Re-renderiza apenas o que está visível, preservando a posição do cursor no editor
+    function refreshFromRemote() {
+        try {
+            // Se o editor estiver aberto com uma nota em edição, não interromper a digitação
+            // — o editor faz flush ao perder foco; apenas atualizar listas em background
+            renderFolders();
+            if (nav.category === '__recent__') {
+                renderRecentNotes();
+            } else if (nav.category && nav.itemId) {
+                renderNotesList();
+                // Só re-renderizar o editor se a nota não estiver sendo editada
+                if (nav.noteId && !_noteSaveTimer) {
+                    renderEditor();
+                }
+            } else if (nav.category) {
+                renderSubfolders();
+            }
+        } catch(e) {
+            console.warn('Aprendizados.refreshFromRemote: erro ao re-renderizar —', e);
+        }
+    }
 
     // openItem — API pública: navega direto para o item na aba aprendizados
     function openItem(category, itemId) {
@@ -1445,6 +1549,6 @@ const Aprendizados = (() => {
         }
     }
 
-    return { init, onShow, onHide, setLineChecked, addQuickEntry, addToFixedNote, openItem };
+    return { init, onShow, onHide, setLineChecked, addQuickEntry, addToFixedNote, openItem, refreshFromRemote };
 })();
 

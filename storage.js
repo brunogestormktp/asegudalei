@@ -393,11 +393,13 @@ const StorageManager = {
     },
 
     // ─── Aprendizados: salvar no mesmo data do Supabase ─────────────────
-    // Os dados ficam em data['_aprendizados'] — nunca são apagados pelo merge
+    // Os dados ficam em data['_aprendizados'] — nunca são apagados pelo merge.
+    // immediate=true garante push sem debounce para que outros dispositivos
+    // recebam a atualização via Realtime o mais rápido possível.
     async saveAprendizados(aprendizadosObj) {
         const allData = await this.getData();
         allData['_aprendizados'] = aprendizadosObj;
-        await this.saveData(allData);
+        await this.saveData(allData, true); // immediate=true: sem debounce
     },
 
     async getAprendizados() {
@@ -718,6 +720,220 @@ const StorageManager = {
         } catch(e) {
             console.error('Erro ao sincronizar configurações com Supabase:', e);
         }
+    },
+
+    // ─── Realtime dedicado para Aprendizados ────────────────────────────
+    // Canal Supabase Realtime que escuta mudanças na tabela user_data.
+    // Estratégia de segurança:
+    //   1. Compara _lastDeviceId para ignorar eventos gerados pelo próprio dispositivo.
+    //   2. Faz merge profundo apenas de _aprendizados (não toca nos dados de status do dia).
+    //   3. Se o canal falhar (CHANNEL_ERROR / timeout), ativa fallback de polling a 5s.
+    //   4. O canal é destruído ao sair da aba — evita acúmulo de listeners.
+    _aprendRealtimeChannel: null,
+    _aprendFallbackTimer: null,
+    _aprendFallbackActive: false,
+    _aprendLastRemoteAt: null,
+
+    startAprendizadosRealtime(userId) {
+        if (!userId) return;
+        // Já está rodando para este usuário
+        if (this._aprendRealtimeChannel && this._aprendLastUserId === userId) return;
+        this._aprendLastUserId = userId;
+        this._stopAprendFallback();
+
+        const supabase = this.getSupabase();
+        if (!supabase) {
+            // Sem cliente Supabase — usar fallback diretamente
+            this._startAprendFallback(userId);
+            return;
+        }
+
+        // Destruir canal anterior se existir
+        this.stopAprendizadosRealtime();
+
+        try {
+            const channel = supabase
+                .channel(`aprend-sync-${userId}`)
+                .on(
+                    'postgres_changes',
+                    { event: 'UPDATE', schema: 'public', table: 'user_data', filter: `user_id=eq.${userId}` },
+                    (payload) => this._handleAprendRealtimeEvent(payload, userId)
+                )
+                .subscribe((status, err) => {
+                    if (status === 'SUBSCRIBED') {
+                        console.log('📡 Aprendizados Realtime: canal ativo');
+                        this._aprendFallbackActive = false;
+                        this._stopAprendFallback();
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                        console.warn(`📡 Aprendizados Realtime: ${status} — ativando fallback polling 5s`);
+                        this._startAprendFallback(userId);
+                    }
+                });
+
+            this._aprendRealtimeChannel = channel;
+        } catch(e) {
+            console.warn('📡 Aprendizados Realtime: erro ao criar canal —', e.message);
+            this._startAprendFallback(userId);
+        }
+    },
+
+    stopAprendizadosRealtime() {
+        this._stopAprendFallback();
+        if (this._aprendRealtimeChannel) {
+            try {
+                const supabase = this.getSupabase();
+                supabase?.removeChannel(this._aprendRealtimeChannel);
+            } catch(e) {}
+            this._aprendRealtimeChannel = null;
+            console.log('📡 Aprendizados Realtime: canal encerrado');
+        }
+        this._aprendLastUserId = null;
+    },
+
+    _startAprendFallback(userId) {
+        if (this._aprendFallbackActive) return;
+        this._aprendFallbackActive = true;
+        // Polling a cada 5s enquanto a aba estiver visível
+        this._aprendFallbackTimer = setInterval(() => this._doPollAprendizados(userId), 5000);
+        console.log('📡 Aprendizados: fallback polling 5s ativo');
+    },
+
+    _stopAprendFallback() {
+        if (this._aprendFallbackTimer) {
+            clearInterval(this._aprendFallbackTimer);
+            this._aprendFallbackTimer = null;
+        }
+        this._aprendFallbackActive = false;
+    },
+
+    async _handleAprendRealtimeEvent(payload, userId) {
+        try {
+            const newData = payload?.new?.data;
+            if (!newData) return;
+            // Ignorar eventos do próprio dispositivo
+            if (newData._lastDeviceId === this._deviceId) return;
+            // Ignorar se não há _aprendizados no payload
+            if (!newData._aprendizados) return;
+
+            console.log('📡 Aprendizados Realtime: nova versão recebida — mergeando...');
+            await this._applyRemoteAprendizados(newData._aprendizados);
+        } catch(e) {
+            console.warn('📡 Aprendizados Realtime: erro ao processar evento —', e);
+        }
+    },
+
+    async _doPollAprendizados(userId) {
+        const supabase = this.getSupabase();
+        if (!supabase || !userId) return;
+        try {
+            const { data: row, error } = await supabase
+                .from('user_data')
+                .select('updated_at, data')
+                .eq('user_id', userId)
+                .single();
+
+            if (error || !row) return;
+            // Nada mudou
+            if (row.updated_at === this._aprendLastRemoteAt) return;
+            this._aprendLastRemoteAt = row.updated_at;
+            // Evento do próprio dispositivo
+            if (row.data?._lastDeviceId === this._deviceId) return;
+            // Sem dados de aprendizados no remoto
+            if (!row.data?._aprendizados) return;
+
+            console.log('📡 Aprendizados polling: mudança detectada — mergeando...');
+            await this._applyRemoteAprendizados(row.data._aprendizados);
+        } catch(e) { /* rede offline — silencioso */ }
+    },
+
+    // Merge de _aprendizados remoto com local e re-render se a aba estiver aberta
+    async _applyRemoteAprendizados(remote) {
+        // Carregar local atual
+        let local = {};
+        try {
+            const raw = localStorage.getItem('aprendizadosData');
+            local = raw ? JSON.parse(raw) : {};
+        } catch(e) {}
+
+        // Merge profundo: a nota mais recente (updatedAt) por noteId vence
+        const merged = this._mergeAprendizados(local, remote);
+
+        // Só salvar e re-renderizar se houver diferença real
+        const mergedStr = JSON.stringify(merged);
+        const localStr  = JSON.stringify(local);
+        if (mergedStr === localStr) return;
+
+        localStorage.setItem('aprendizadosData', mergedStr);
+
+        // Atualizar também o blob principal para manter consistência no deepMerge global
+        try {
+            const allData = await this.getData();
+            allData['_aprendizados'] = merged;
+            const json = JSON.stringify(allData);
+            localStorage.setItem(this.STORAGE_KEY, json);
+            localStorage.setItem(this.BACKUP_KEY, json);
+        } catch(e) {}
+
+        // Re-renderizar somente se a aba Aprendizados estiver visível
+        const aprendView = document.getElementById('aprendizadosView');
+        if (aprendView && !aprendView.classList.contains('hidden')) {
+            if (typeof Aprendizados !== 'undefined' && Aprendizados.refreshFromRemote) {
+                Aprendizados.refreshFromRemote();
+            }
+        }
+        // Atualizar badge/botão 📚 se a aba Hoje estiver visível
+        if (typeof app !== 'undefined' && app.currentView === 'today') {
+            try { app.renderTodayView?.(); } catch(e) {}
+        }
+    },
+
+    // Merge de dois objetos de aprendizados: categoria → itemId → notas por updatedAt
+    _mergeAprendizados(local, remote) {
+        const result = JSON.parse(JSON.stringify(local));
+        for (const cat of Object.keys(remote)) {
+            if (!result[cat]) { result[cat] = remote[cat]; continue; }
+            for (const itemId of Object.keys(remote[cat])) {
+                const rItem = remote[cat][itemId];
+                const lItem = result[cat][itemId];
+                if (!lItem) { result[cat][itemId] = rItem; continue; }
+                // Normalizar os dois lados para array de notas
+                const lNotes = this._normalizeToNotesArr(lItem);
+                const rNotes = this._normalizeToNotesArr(rItem);
+                const map = {};
+                for (const n of lNotes) map[n.id] = n;
+                for (const n of rNotes) {
+                    if (!map[n.id]) { map[n.id] = n; continue; }
+                    const lTs = map[n.id].updatedAt ? new Date(map[n.id].updatedAt).getTime() : 0;
+                    const rTs = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
+                    if (rTs > lTs) map[n.id] = n;
+                }
+                result[cat][itemId] = {
+                    notes: Object.values(map).sort((a, b) =>
+                        (b.updatedAt || '').localeCompare(a.updatedAt || ''))
+                };
+            }
+        }
+        return result;
+    },
+
+    _normalizeToNotesArr(item) {
+        if (!item) return [];
+        if (Array.isArray(item.notes)) return item.notes;
+        if (typeof item.content !== 'undefined') {
+            const content = item.content || '';
+            if (!content.trim()) return [];
+            const id = 'n-legacy-' + Math.random().toString(36).slice(2, 8);
+            return [{
+                id,
+                title: (content.split('\n').find(l => l.trim()) || 'Sem título').slice(0, 60),
+                content,
+                checkedLines: item.checkedLines || {},
+                attachments: [],
+                createdAt: item.updatedAt || new Date().toISOString(),
+                updatedAt: item.updatedAt || new Date().toISOString(),
+            }];
+        }
+        return [];
     },
 
     // ── Upload de imagem para o bucket note-images no Supabase Storage ──

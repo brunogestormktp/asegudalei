@@ -5246,6 +5246,64 @@ mark.tsf-highlight {
     text-overflow: ellipsis;
 }
 .aprend-hl { background: rgba(149,211,238,0.3); color: #e8f4fa !important; border-radius: 2px; padding: 0 1px; }
+
+/* ── Seção de categorias da aba Hoje na busca ────────────────── */
+.aprend-search-section-title {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: rgba(149,211,238,0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 10px 14px 5px;
+}
+.aprend-search-cat-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 2px 8px;
+    border-left: 3px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+}
+.aprend-search-cat-row:hover {
+    background: rgba(149,211,238,0.08);
+    border-left-color: rgba(149,211,238,0.4);
+}
+.aprend-search-cat-icon {
+    font-size: 13px;
+    flex-shrink: 0;
+    opacity: 0.75;
+}
+.aprend-search-cat-info {
+    flex: 1;
+    min-width: 0;
+}
+.aprend-search-cat-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ddeef8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.aprend-search-cat-sub {
+    font-size: 10px;
+    color: rgba(149,211,238,0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-top: 1px;
+}
+.aprend-search-cat-arrow {
+    color: rgba(149,211,238,0.35);
+    flex-shrink: 0;
+}
+.aprend-search-divider {
+    height: 1px;
+    background: rgba(149,211,238,0.1);
+    margin: 8px 14px;
+}
 .aprend-search-empty {
     padding: 28px 16px;
     text-align: center;
