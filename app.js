@@ -1953,6 +1953,8 @@ class HabitTrackerApp {
     /** Re-renderiza today e/ou history após mudanças de settings */
     _reRenderAfterSettingsChange() {
         if (this.currentView === 'today') {
+            this._todayScrollTop = window.scrollY;
+            this._pendingScrollRestore = true;
             this.renderTodayView();
         } else if (this.currentView === 'history') {
             this._reRenderHistory();
@@ -3700,7 +3702,11 @@ class HabitTrackerApp {
                     // Feedback e re-render
                     nextDayBtn.textContent = '✅';
                     nextDayBtn.disabled = true;
-                    setTimeout(() => this.renderTodayView(), 700);
+                    setTimeout(() => {
+                        this._todayScrollTop = window.scrollY;
+                        this._pendingScrollRestore = true;
+                        this.renderTodayView();
+                    }, 700);
                 });
             }
 
@@ -3879,6 +3885,8 @@ class HabitTrackerApp {
         );
 
         this.closeModal();
+        this._todayScrollTop = window.scrollY;
+        this._pendingScrollRestore = true;
         this.renderTodayView();
     }
 
