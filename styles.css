@@ -5475,9 +5475,24 @@ mark.tsf-highlight {
 
 /* ── Mobile (≤768px) ──────────────────────────────────────── */
 @media (max-width: 768px) {
+    /* A view de aprendizados "foge" do padding do .main-content
+       para ocupar exatamente a área entre o header e o fim da tela */
+    #aprendizadosView {
+        margin: -0.75rem;           /* cancela o padding do .main-content */
+    }
+
     .aprend-layout {
-        height: calc(100vh - 60px - env(safe-area-inset-bottom, 0px));
+        /* Altura = tela inteira menos o header real (var setada pelo JS)
+           menos a safe-area da home bar do iPhone */
+        height: calc(100vh - var(--header-h, 60px) - env(safe-area-inset-bottom, 0px));
         overflow: hidden;
+    }
+
+    /* Garante que a lista de notas não cresce além da altura da coluna */
+    #aprendNotesList {
+        min-height: 0;
+        flex: 1;
+        overflow-y: auto;
     }
 
     .aprend-col {
