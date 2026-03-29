@@ -26,23 +26,33 @@ const StorageManager = {
     // ─── Merge profundo: nunca perde dados já existentes ────────────────
     // Estratégia: para cada data > categoria > item, mantém o registro
     // com updatedAt mais recente. Nunca apaga, apenas mescla.
-    // Chaves especiais (_settings, _aprendizados) usam updatedAt diretamente.
+    // Chaves especiais (_settings, _aprendizados) usam lógica própria.
     deepMerge(base, incoming) {
         if (!incoming || typeof incoming !== 'object') return base;
         const result = { ...base };
 
-        // Chaves especiais: resolver por updatedAt antes do loop de datas
-        const SPECIAL_KEYS = ['_settings', '_aprendizados'];
-        for (const key of SPECIAL_KEYS) {
-            if (incoming[key] !== undefined) {
-                const baseTs   = result[key]?.updatedAt   ? new Date(result[key].updatedAt).getTime()   : 0;
-                const incomTs  = incoming[key]?.updatedAt ? new Date(incoming[key].updatedAt).getTime() : 0;
-                // Remoto mais recente → usa remoto; senão mantém local
-                if (incomTs > baseTs || !result[key]) {
-                    result[key] = incoming[key];
-                }
+        // _settings: resolver por updatedAt no nível raiz (objeto único)
+        if (incoming['_settings'] !== undefined) {
+            const baseTs  = result['_settings']?.updatedAt  ? new Date(result['_settings'].updatedAt).getTime()  : 0;
+            const incomTs = incoming['_settings']?.updatedAt ? new Date(incoming['_settings'].updatedAt).getTime() : 0;
+            if (incomTs > baseTs || !result['_settings']) {
+                result['_settings'] = incoming['_settings'];
             }
         }
+
+        // _aprendizados: merge nota-a-nota por updatedAt (nunca tem updatedAt no raiz)
+        if (incoming['_aprendizados'] !== undefined) {
+            if (!result['_aprendizados']) {
+                result['_aprendizados'] = incoming['_aprendizados'];
+            } else {
+                result['_aprendizados'] = this._mergeAprendizados(
+                    result['_aprendizados'],
+                    incoming['_aprendizados']
+                );
+            }
+        }
+
+        const SPECIAL_KEYS = ['_settings', '_aprendizados'];
 
         for (const dateKey of Object.keys(incoming)) {
             // Ignorar chaves especiais já tratadas acima
@@ -484,7 +494,7 @@ const StorageManager = {
                     const { _lastDeviceId: _ignored, ...cleanRemote } = remoteData.data;
 
                     // MERGE PROFUNDO: local + remoto, o mais recente por item vence
-                    // deepMerge já trata _settings e _aprendizados por updatedAt
+                    // deepMerge trata _settings por updatedAt e _aprendizados nota-a-nota
                     const merged = this.deepMerge(local, cleanRemote);
 
                     // Salvar merged APENAS no localStorage — sem push de volta ao Supabase
@@ -498,6 +508,12 @@ const StorageManager = {
                     if (merged['_aprendizados']) {
                         try {
                             localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados']));
+                            localStorage.setItem('_aprendizados_backup_uid', userId);
+                        } catch(e) {}
+                    } else if (cleanRemote['_aprendizados']) {
+                        // Caso raro: deepMerge não incluiu _aprendizados — garantir via cópia direta
+                        try {
+                            localStorage.setItem('aprendizadosData', JSON.stringify(cleanRemote['_aprendizados']));
                             localStorage.setItem('_aprendizados_backup_uid', userId);
                         } catch(e) {}
                     }
@@ -620,15 +636,16 @@ const StorageManager = {
             } catch(e) {}
 
             const { _lastDeviceId: _ign, ...cleanRemote } = row.data;
-            // deepMerge já resolve _settings e _aprendizados por updatedAt
             const merged = this.deepMerge(local, cleanRemote);
 
             const mergedJson = JSON.stringify(merged);
             localStorage.setItem(this.STORAGE_KEY, mergedJson);
             localStorage.setItem(this.BACKUP_KEY, mergedJson);
 
-            if (merged['_aprendizados']) {
-                try { localStorage.setItem('aprendizadosData', JSON.stringify(merged['_aprendizados'])); } catch(e) {}
+            // _aprendizados: aplicar via _applyRemoteAprendizados para garantir
+            // merge nota-a-nota correto e re-render da aba se estiver aberta
+            if (cleanRemote['_aprendizados']) {
+                await this._applyRemoteAprendizados(cleanRemote['_aprendizados']);
             }
 
             // Aplicar _settings vencedor (já resolvido pelo deepMerge)
@@ -657,7 +674,7 @@ const StorageManager = {
                     app.renderCurrentView();
                 } finally { this._realtimeSyncing = false; }
             }
-        } catch(e) { /* rede offline — silencioso, tentará novamente em 10s */ }
+        } catch(e) { /* rede offline — silencioso, tentará novamente em 30s */ }
     },
 
     // ─── Settings: labels de categorias, nomes e ordem de itens ────────
