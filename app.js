@@ -1298,21 +1298,34 @@ class HabitTrackerApp {
             });
             dropdown.appendChild(footerEmpty);
         } else {
-            notes.forEach((note) => {
+            notes.forEach((note, noteIdx) => {
                 const noteLines = (note.content || '').split('\n').filter(l => l.trim() !== '');
                 if (noteLines.length === 0) return;
 
-                // Cabeçalho da nota (só se houver título ou múltiplas notas)
-                if (notes.length > 1 || note.title) {
-                    const headerEl = document.createElement('div');
-                    headerEl.className = 'item-aprend-note-header';
-                    headerEl.textContent = note.title || 'Nota';
-                    dropdown.appendChild(headerEl);
-                }
+                // Wrapper do grupo (accordion item)
+                const groupEl = document.createElement('div');
+                groupEl.className = 'item-aprend-note-group';
 
+                // Cabeçalho clicável — sempre visível, começa fechado
+                const headerEl = document.createElement('div');
+                headerEl.className = 'item-aprend-note-header collapsible';
+                const label = note.title || (notes.length > 1 ? `Nota ${noteIdx + 1}` : 'Nota');
+                headerEl.innerHTML = `<span class="aprend-note-label">${label}</span><span class="aprend-note-chevron">▶</span>`;
+
+                // Container das linhas (fechado por padrão)
+                const linesEl = document.createElement('div');
+                linesEl.className = 'item-aprend-note-lines';
+
+                // Toggle ao clicar no header
+                headerEl.addEventListener('mousedown', (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    groupEl.classList.toggle('open');
+                });
+
+                // Renderizar linhas
                 noteLines.forEach((lineText, lineIdx) => {
                     // realIdx = índice no content.split('\n') incluindo linhas vazias
-                    // (para bater com checkedLines que usa esse índice)
                     const allLines = (note.content || '').split('\n');
                     let realIdx = 0, nonEmptyCount = 0;
                     for (let i = 0; i < allLines.length; i++) {
@@ -1365,8 +1378,12 @@ class HabitTrackerApp {
                         setTimeout(() => this._closeAllItemAprendDropdowns(), 350);
                         this.renderTodayView();
                     });
-                    dropdown.appendChild(lineEl);
+                    linesEl.appendChild(lineEl);
                 });
+
+                groupEl.appendChild(headerEl);
+                groupEl.appendChild(linesEl);
+                dropdown.appendChild(groupEl);
             });
 
             // Botão "Ver todas as notas" no rodapé
