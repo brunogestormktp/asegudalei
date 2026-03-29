@@ -602,6 +602,8 @@ class HabitTrackerApp {
 
                 await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', appended);
                 // update view
+                this._todayScrollTop = window.scrollY;
+                this._pendingScrollRestore = true;
                 this.renderTodayView();
             }
         });
@@ -1015,6 +1017,8 @@ class HabitTrackerApp {
             const dateStr = this.getDateString();
             const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
             await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', '');
+            this._todayScrollTop = window.scrollY;
+            this._pendingScrollRestore = true;
             this.renderTodayView();
         }, true); // Use capturing phase
 
@@ -1245,6 +1249,8 @@ class HabitTrackerApp {
                 ? (existingNote.includes(lineText) ? existingNote : existingNote + '\n' + lineText)
                 : lineText;
             await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'none', newNote);
+            this._todayScrollTop = window.scrollY;
+            this._pendingScrollRestore = true;
             this.renderTodayView();
 
             // Feedback visual no botão
@@ -1471,6 +1477,8 @@ class HabitTrackerApp {
                         lineEl.querySelector('.item-aprend-icon').innerHTML = '<polyline points="20 6 9 17 4 12"></polyline>';
 
                         setTimeout(() => this._closeAllItemAprendDropdowns(), 350);
+                        this._todayScrollTop = window.scrollY;
+                        this._pendingScrollRestore = true;
                         this.renderTodayView();
                     });
                     linesEl.appendChild(lineEl);
@@ -2183,17 +2191,31 @@ class HabitTrackerApp {
                 const todayStr = this.getDateString(new Date());
                 if (opt.key === 'concluido' && dateStr === todayStr) {
                     this.showAprendizadoPopup(category, itemId, item?.name || itemId)
-                        .then(() => this.renderTodayView());
+                        .then(() => {
+                            this._todayScrollTop = window.scrollY;
+                            this._pendingScrollRestore = true;
+                            this.renderTodayView();
+                        });
                 }
                 if (opt.key === 'bloqueado' && dateStr === todayStr) {
                     this.showBloqueadoPopup(category, itemId)
-                        .then(() => this.renderTodayView());
+                        .then(() => {
+                            this._todayScrollTop = window.scrollY;
+                            this._pendingScrollRestore = true;
+                            this.renderTodayView();
+                        });
                 }
                 if (opt.key === 'parcialmente' && dateStr === todayStr) {
                     this.showParcialmentePopup(category, itemId)
-                        .then(() => this.renderTodayView());
+                        .then(() => {
+                            this._todayScrollTop = window.scrollY;
+                            this._pendingScrollRestore = true;
+                            this.renderTodayView();
+                        });
                 }
                 if (dateStr === todayStr) {
+                    this._todayScrollTop = window.scrollY;
+                    this._pendingScrollRestore = true;
                     this.renderTodayView();
                 }
             });
@@ -2611,6 +2633,8 @@ class HabitTrackerApp {
             setTimeout(() => {
                 this._hideWeekBarTooltip(true);
                 if (this.currentView === 'today' || this.currentView === 'history') {
+                    this._todayScrollTop = window.scrollY;
+                    this._pendingScrollRestore = true;
                     this.renderTodayView();
                 }
             }, 700);
@@ -2912,6 +2936,8 @@ class HabitTrackerApp {
             }
 
             close();
+            this._todayScrollTop = window.scrollY;
+            this._pendingScrollRestore = true;
             this.renderTodayView();
         });
     }
@@ -2929,6 +2955,8 @@ class HabitTrackerApp {
         const targetLinks = (targetData.links || []).filter(l => !(l.category === sourceCat && l.itemId === sourceId));
         await StorageManager.saveItemStatus(dateStr, targetCat, targetId, targetData.status || 'none', targetData.note || '', targetLinks);
 
+        this._todayScrollTop = window.scrollY;
+        this._pendingScrollRestore = true;
         this.renderTodayView();
     }
 
@@ -3492,24 +3520,38 @@ class HabitTrackerApp {
                 }
 
                 detachStatusList();
+                this._todayScrollTop = window.scrollY;
+                this._pendingScrollRestore = true;
                 this.renderTodayView();
 
                 // Se concluído hoje: perguntar aprendizado
                 if (newStatus === 'concluido') {
                     this.showAprendizadoPopup(category, item.id, item.name || item.id)
-                        .then(() => this.renderTodayView());
+                        .then(() => {
+                            this._todayScrollTop = window.scrollY;
+                            this._pendingScrollRestore = true;
+                            this.renderTodayView();
+                        });
                 }
 
                 // Se bloqueado hoje: perguntar razão
                 if (newStatus === 'bloqueado') {
                     this.showBloqueadoPopup(category, item.id)
-                        .then(() => this.renderTodayView());
+                        .then(() => {
+                            this._todayScrollTop = window.scrollY;
+                            this._pendingScrollRestore = true;
+                            this.renderTodayView();
+                        });
                 }
 
                 // Se parcialmente hoje: perguntar o que falta
                 if (newStatus === 'parcialmente') {
                     this.showParcialmentePopup(category, item.id)
-                        .then(() => this.renderTodayView());
+                        .then(() => {
+                            this._todayScrollTop = window.scrollY;
+                            this._pendingScrollRestore = true;
+                            this.renderTodayView();
+                        });
                 }
             });
 
