@@ -4540,10 +4540,18 @@ mark.tsf-highlight {
 /* ── Layout 3 colunas ─────────────────────────────────────── */
 .aprend-layout {
     display: flex;
-    height: calc(100vh - 80px);
+    /* Ocupa exatamente o espaço entre o header e o fundo da tela,
+       independente de padding do .main-content, em todos os contextos
+       (Chrome desktop, Chrome mobile, PWA iOS) */
+    position: fixed;
+    top: var(--header-h, 73px);
+    left: 0;
+    right: 0;
+    bottom: env(safe-area-inset-bottom, 0px);
+    height: auto;
     overflow: hidden;
-    position: relative;
     background: #0e1a24;
+    z-index: 10;
 }
 
 /* ── Colunas ──────────────────────────────────────────────── */
@@ -5475,18 +5483,7 @@ mark.tsf-highlight {
 
 /* ── Mobile (≤768px) ──────────────────────────────────────── */
 @media (max-width: 768px) {
-    /* A view de aprendizados "foge" do padding do .main-content
-       para ocupar exatamente a área entre o header e o fim da tela */
-    #aprendizadosView {
-        margin: -0.75rem;           /* cancela o padding do .main-content */
-    }
-
-    .aprend-layout {
-        /* Altura = tela inteira menos o header real (var setada pelo JS)
-           menos a safe-area da home bar do iPhone */
-        height: calc(100vh - var(--header-h, 60px) - env(safe-area-inset-bottom, 0px));
-        overflow: hidden;
-    }
+    /* .aprend-layout já é position:fixed — nada extra necessário aqui */
 
     /* Garante que a lista de notas não cresce além da altura da coluna */
     #aprendNotesList {
