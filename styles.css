@@ -681,6 +681,26 @@ body {
     margin-top: var(--date-sel-h, 54px);
 }
 
+/* iOS PWA — historyStatusFilter fica fixed abaixo do date-selector */
+.ios-pwa #historyStatusFilter {
+    position: fixed;
+    top: var(--history-filter-top, 127px);
+    left: 0;
+    right: 0;
+    z-index: 89;
+    background: rgba(4, 34, 53, 0.96);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 8px 12px 8px;
+    margin: 0;
+    border-bottom: 1px solid rgba(149, 211, 238, 0.08);
+}
+
+/* Compensa o espaço do filtro fixed no iOS PWA */
+.ios-pwa #historyContent {
+    margin-top: calc(var(--date-sel-h, 54px) + var(--history-filter-h, 52px));
+}
+
 .date-selector h2 {
     font-family: 'Quicksand', sans-serif;
     font-size: 1.125rem;
@@ -3469,6 +3489,21 @@ mark.tsf-highlight {
     color: #95d3ee;
 }
 
+.btn-aprend-item.has-notes {
+    border-color: rgba(59, 168, 255, 0.6);
+    box-shadow: 0 0 0 2px rgba(59, 168, 255, 0.18), inset 0 0 6px rgba(59, 168, 255, 0.08);
+    color: rgba(59, 168, 255, 0.9);
+    background: rgba(59, 168, 255, 0.08);
+}
+
+.btn-aprend-item.has-notes:hover {
+    border-color: rgba(59, 168, 255, 0.8);
+    box-shadow: 0 0 0 2px rgba(59, 168, 255, 0.28), inset 0 0 8px rgba(59, 168, 255, 0.12);
+    color: #3ba8ff;
+    background: rgba(59, 168, 255, 0.14);
+    transform: scale(1.08);
+}
+
 /* ── Botão 🔗 Link dentro do item ──────────────────────────── */
 .btn-link-item {
     background: rgba(168, 85, 247, 0.08);
@@ -5309,6 +5344,33 @@ mark.tsf-highlight {
 }
 .aprend-line-row.checked .aprend-line-check-btn { color: #50c878; }
 
+.aprend-line-delete-btn {
+    background: none;
+    border: none;
+    color: transparent;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    margin-top: 4px;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, background 0.15s;
+    opacity: 0;
+}
+.aprend-line-row:hover .aprend-line-delete-btn {
+    opacity: 1;
+    color: rgba(255, 100, 100, 0.45);
+}
+.aprend-line-delete-btn:hover {
+    color: rgba(255, 80, 80, 0.9) !important;
+    background: rgba(255, 80, 80, 0.12);
+    opacity: 1 !important;
+}
+
 .aprend-line-text {
     flex: 1;
     outline: none;
@@ -5523,6 +5585,28 @@ mark.tsf-highlight {
     color: var(--azul-claro);
     text-decoration: underline;
     text-underline-offset: 3px;
+}
+
+/* Status pulado no histórico — apagado, cinza escuro */
+.hs-tr-pular,
+.hs-tr-pular + .hs-tr-cont {
+    background: rgba(10, 20, 30, 0.35) !important;
+    filter: grayscale(40%);
+    opacity: 0.45;
+}
+.hs-tr-pular .hs-demanda-name,
+.hs-tr-pular .hs-status-label,
+.hs-tr-pular .hs-td {
+    color: rgba(255, 255, 255, 0.38) !important;
+}
+.hs-tr-pular .hs-status-dot {
+    opacity: 0.35;
+    box-shadow: none !important;
+}
+.hs-tr-pular:hover,
+.hs-tr-pular + .hs-tr-cont:hover {
+    opacity: 0.6;
+    filter: grayscale(20%);
 }
 
 /* Animação de destaque: círculos rápidos ao redor do item */

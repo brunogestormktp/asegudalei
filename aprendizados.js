@@ -53,6 +53,7 @@ const Aprendizados = (() => {
     let _syncTimer = null;
     let _noteSaveTimer = null;
     let _editorMode = 'lines'; // 'lines' | 'text'
+    let _pendingOpenNav = null; // nav a aplicar na próxima chamada de onShow
 
     // ─── Configurações de categoria ──────────────────────────────────
     const CATEGORY_COLORS = {
@@ -225,6 +226,8 @@ const Aprendizados = (() => {
             all[category][itemId].notes.unshift(note);
         }
         saveAllSync(all);
+        _updateAprendBtnInDOM(category, itemId, all);
+        _refreshDropdownIfOpen(category, itemId);
     }
 
     function deleteNote(category, itemId, noteId) {
@@ -232,6 +235,31 @@ const Aprendizados = (() => {
         if (!all[category]?.[itemId]) return;
         all[category][itemId].notes = normalizeToNotes(all[category][itemId]).filter(n => n.id !== noteId);
         saveAllSync(all);
+        _updateAprendBtnInDOM(category, itemId, all);
+        _refreshDropdownIfOpen(category, itemId);
+    }
+
+    // Pede ao App para atualizar o dropdown se estiver aberto para este item
+    function _refreshDropdownIfOpen(category, itemId) {
+        try {
+            if (typeof window.app !== 'undefined' && typeof window.app.refreshItemAprendDropdown === 'function') {
+                window.app.refreshItemAprendDropdown(category, itemId);
+            }
+        } catch {}
+    }
+
+    // Atualiza a classe has-notes no botão 📚 do item no clientesList/DOM
+    function _updateAprendBtnInDOM(category, itemId, allData) {
+        try {
+            const btn = document.querySelector(`[data-category="${category}"][data-item-id="${itemId}"] .btn-aprend-item`);
+            if (!btn) return;
+            const entry = allData?.[category]?.[itemId];
+            // Considera "tem notas" apenas se houver ao menos uma nota com conteúdo não-vazio
+            const notes = Array.isArray(entry?.notes) ? entry.notes : [];
+            const hasNotes = notes.some(n => n.content && n.content.trim().length > 0)
+                || !!(entry?.content && entry.content.trim());
+            btn.classList.toggle('has-notes', hasNotes);
+        } catch {}
     }
 
     function createNewNote(category, itemId) {
@@ -775,6 +803,32 @@ const Aprendizados = (() => {
 
         row.appendChild(checkBtn);
         row.appendChild(textEl);
+
+        // Botão deletar linha ✕
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'aprend-line-delete-btn';
+        deleteBtn.title = 'Apagar esta linha';
+        deleteBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+        deleteBtn.addEventListener('mousedown', (e) => e.preventDefault());
+        deleteBtn.addEventListener('click', () => {
+            const allRows = Array.from(document.querySelectorAll('#aprendLineRows .aprend-line-row'));
+            // Não apagar se for a única linha — apenas limpar o conteúdo
+            if (allRows.length <= 1) {
+                setPlainText(textEl, '');
+                textEl.focus();
+                _syncLinesAndSave();
+                return;
+            }
+            // Foco vai para a linha anterior, ou próxima se for a primeira
+            const prevRow = row.previousElementSibling;
+            const nextRow = row.nextElementSibling;
+            const focusTarget = prevRow || nextRow;
+            row.remove();
+            focusTarget?.querySelector('.aprend-line-text')?.focus();
+            _syncLinesAndSave();
+        });
+        row.appendChild(deleteBtn);
+
         return row;
     }
 
@@ -1224,14 +1278,7 @@ const Aprendizados = (() => {
 
     // ─── Init ─────────────────────────────────────────────────────────
     function init() {
-        restoreNav();
-        renderFolders();
-        if (nav.category === '__recent__') {
-            renderRecentNotes();
-            navigateTo('notes');
-        }
-        _applyLayout();
-
+        // Registrar event listeners (apenas uma vez)
         document.getElementById('aprendSearch')?.addEventListener('input', (e) => renderSearch(e.target.value));
 
         document.getElementById('aprendBtnNewNote')?.addEventListener('click', () => {
@@ -1264,6 +1311,25 @@ const Aprendizados = (() => {
 
         window.addEventListener('resize', _applyLayout);
 
+        // Se há navegação pendente vinda de openItem, navegar direto para o item
+        if (_pendingOpenNav) {
+            _applyPendingNav();
+            _applyLayout();
+            syncFromSupabase().then(() => {
+                renderFolders();
+                renderNotesList();
+            }).catch(() => {});
+            return;
+        }
+
+        restoreNav();
+        renderFolders();
+        if (nav.category === '__recent__') {
+            renderRecentNotes();
+            navigateTo('notes');
+        }
+        _applyLayout();
+
         syncFromSupabase().then(() => {
             renderFolders();
             if (nav.category === '__recent__') {
@@ -1275,6 +1341,11 @@ const Aprendizados = (() => {
     }
 
     function onShow() {
+        // Se há navegação pendente vinda de openItem, usa ela em vez de restaurar do storage
+        if (_pendingOpenNav) {
+            _applyPendingNav();
+            return;
+        }
         restoreNav();
         renderFolders();
         if (nav.category === '__recent__') {
@@ -1292,12 +1363,25 @@ const Aprendizados = (() => {
 
     // openItem — API pública: navega direto para o item na aba aprendizados
     function openItem(category, itemId) {
+        _pendingOpenNav = { category, itemId };
+        // Se a view já estiver visível (onShow não será chamado), aplica imediatamente
+        const view = document.getElementById('aprendizadosView');
+        if (view && !view.classList.contains('hidden')) {
+            _applyPendingNav();
+        }
+    }
+
+    function _applyPendingNav() {
+        if (!_pendingOpenNav) return;
+        const { category, itemId } = _pendingOpenNav;
+        _pendingOpenNav = null;
         _flushNote();
         nav.category = category;
         nav.itemId   = itemId;
         nav.noteId   = null;
         renderFolders();
         renderSubfolders();
+        renderNotesList();
         navigateTo('notes');
     }
 
@@ -1318,6 +1402,49 @@ const Aprendizados = (() => {
         saveNote(category, itemId, note);
     }
 
-    return { init, onShow, onHide, setLineChecked, addQuickEntry, openItem };
+    // addToFixedNote — API pública: appenda texto em uma nota fixa por tipo
+    // Cria a nota na primeira vez; adiciona ao final nas chamadas seguintes
+    function addToFixedNote(category, itemId, type, text) {
+        if (!text || !text.trim()) return;
+
+        const TITLES = {
+            concluido:    '✅ Concluídos',
+            bloqueado:    '🚫 Bloqueados',
+            parcialmente: '⏳ Parcialmente',
+        };
+        const TYPES = {
+            concluido:    'concluido',
+            bloqueado:    'bloqueado',
+            parcialmente: 'parcialmente',
+        };
+
+        const title = TITLES[type] || ('📝 ' + type);
+        const notes = getItemNotes(category, itemId);
+        const existing = notes.find(n => n.title === title);
+
+        if (existing) {
+            // Appenda separado por divisor
+            existing.content = existing.content
+                ? existing.content.trim() + '\n—\n' + text.trim()
+                : text.trim();
+            existing.updatedAt = nowISO();
+            saveNote(category, itemId, existing);
+        } else {
+            // Cria nota fixa pela primeira vez
+            const note = {
+                id: uuid(),
+                title,
+                content: text.trim(),
+                type: TYPES[type] || type,
+                checkedLines: {},
+                attachments: [],
+                createdAt: nowISO(),
+                updatedAt: nowISO(),
+            };
+            saveNote(category, itemId, note);
+        }
+    }
+
+    return { init, onShow, onHide, setLineChecked, addQuickEntry, addToFixedNote, openItem };
 })();
 

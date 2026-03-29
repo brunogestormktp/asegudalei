@@ -434,8 +434,9 @@ const StorageManager = {
             localStorage.removeItem('_aprendizados_backup_uid');
         }
 
-        // Dados sem tag de proprietário (legacy/sem tag) não são limpos aqui.
-        // O forceSyncFromSupabase os descarta quando há dados do usuário no Supabase.
+        // Caso extremo: dados sem nenhuma tag de proprietário (legacy/sem tag).
+        // Nesses casos NÃO limpamos — são dados que existiam antes desta proteção.
+        // Eles serão descartados pelo deepMerge se conflitarem com dados do Supabase.
 
         if (foundForeign) {
             console.warn(`🔒 [SEGURANÇA] Dados de outro usuário removidos do localStorage antes do login de ${newUserId}`);
@@ -465,33 +466,17 @@ const StorageManager = {
                     .single();
 
                 if (!error && remoteData?.data) {
-                    // 🔒 SEGURANÇA: só reutilizar dados locais se tiverem tag confirmada deste usuário.
-                    // Dados sem tag (legacy de sessão anterior sem tagging) são descartados aqui —
-                    // podem pertencer a qualquer pessoa. O Supabase é a fonte autoritativa.
-                    const localOwnerUid = localStorage.getItem('_data_backup_uid');
-                    let local = {};
+                    // Ler dados locais atuais — agora garantidamente sem dados de outra conta
+                    const localRaw = localStorage.getItem(this.STORAGE_KEY);
+                    const local = localRaw ? JSON.parse(localRaw) : {};
 
-                    if (localOwnerUid === userId) {
-                        // Tag confirmada: pode mesclar com segurança
-                        const localRaw = localStorage.getItem(this.STORAGE_KEY);
-                        local = localRaw ? JSON.parse(localRaw) : {};
-
-                        try {
-                            const localSettingsRaw = localStorage.getItem(this.SETTINGS_KEY);
-                            if (localSettingsRaw && !local['_settings']) {
-                                local['_settings'] = JSON.parse(localSettingsRaw);
-                            }
-                        } catch(e) {}
-                    } else {
-                        // Sem tag ou tag de outro usuário (que _clearForeignLocalData não limpou
-                        // por não ter tag) → descartar dados locais, usar só o Supabase
-                        if (!localOwnerUid) {
-                            console.warn('🔒 [SEGURANÇA] Dados locais sem tag de proprietário descartados — usando Supabase como fonte única');
-                            localStorage.removeItem(this.STORAGE_KEY);
-                            localStorage.removeItem(this.SETTINGS_KEY);
-                            localStorage.removeItem('aprendizadosData');
+                    // Incluir _settings local no objeto base para o deepMerge comparar corretamente
+                    try {
+                        const localSettingsRaw = localStorage.getItem(this.SETTINGS_KEY);
+                        if (localSettingsRaw && !local['_settings']) {
+                            local['_settings'] = JSON.parse(localSettingsRaw);
                         }
-                    }
+                    } catch(e) {}
 
                     // Remover _lastDeviceId do remoto antes de mesclar (não é dado do app)
                     const { _lastDeviceId: _ignored, ...cleanRemote } = remoteData.data;
@@ -534,22 +519,14 @@ const StorageManager = {
                     // _clearForeignLocalData() já limpou qualquer resíduo de outra conta.
                     // Se ainda restar dados locais sem tag (legacy), fazer push para o Supabase.
                     console.log('Conta nova: sem dados no Supabase. Iniciando sessão limpa.');
-                    // 🔒 SEGURANÇA: só fazer push se a tag confirmar que os dados pertencem a este usuário.
-                    // Dados sem tag (legacy) podem ser de outro usuário — NÃO fazer push.
-                    const backupUid = localStorage.getItem('_data_backup_uid');
-                    if (backupUid === userId) {
-                        const local = await this.getData();
-                        if (this.hasRealData(local)) {
-                            console.log('Fazendo push dos dados locais (confirmados deste usuário) para o Supabase');
+                    const local = await this.getData();
+                    if (this.hasRealData(local)) {
+                        // Só fazer push se os dados locais pertencem a este usuário (ou não têm tag)
+                        const backupUid = localStorage.getItem('_data_backup_uid');
+                        if (!backupUid || backupUid === userId) {
+                            console.log('Fazendo push dos dados locais (sem tag) para o Supabase');
                             await this._pushToSupabase(local);
                         }
-                    } else {
-                        // Sem tag ou tag de outro usuário: limpar localStorage e começar do zero
-                        console.log('🔒 [SEGURANÇA] Conta nova: dados locais sem tag descartados. Sessão limpa.');
-                        localStorage.removeItem(this.STORAGE_KEY);
-                        localStorage.removeItem(this.BACKUP_KEY);
-                        localStorage.removeItem(this.SETTINGS_KEY);
-                        localStorage.removeItem('aprendizadosData');
                     }
                     return true;
                 }

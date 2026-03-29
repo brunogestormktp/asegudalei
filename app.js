@@ -178,6 +178,17 @@ class HabitTrackerApp {
             if (document.documentElement.classList.contains('ios-pwa') && dateSelEl) {
                 const dsH = dateSelEl.getBoundingClientRect().height;
                 document.documentElement.style.setProperty('--date-sel-h', Math.round(dsH) + 'px');
+
+                // Posição do historyStatusFilter = abaixo do date-selector
+                const filterTop = Math.round(h) + Math.round(dsH);
+                document.documentElement.style.setProperty('--history-filter-top', filterTop + 'px');
+
+                // Altura do filtro para compensar no historyContent
+                const filterEl = document.getElementById('historyStatusFilter');
+                if (filterEl) {
+                    const fH = filterEl.getBoundingClientRect().height;
+                    document.documentElement.style.setProperty('--history-filter-h', Math.round(fH) + 'px');
+                }
             }
         }
     }
@@ -287,7 +298,7 @@ class HabitTrackerApp {
                 cleanup();
                 // Save to aprendizados tab
                 if (typeof Aprendizados !== 'undefined' && text) {
-                    Aprendizados.addQuickEntry(category, itemId, itemName, text);
+                    Aprendizados.addToFixedNote(category, itemId, 'concluido', text);
                 }
                 // Save to history: append 🧠 note to today's item record
                 const dateStr = this.getDateString();
@@ -348,6 +359,10 @@ class HabitTrackerApp {
                 const text = input.value.trim();
                 if (!text || text.length < 5) return;
                 cleanup();
+                // Save to aprendizados tab
+                if (typeof Aprendizados !== 'undefined' && text) {
+                    Aprendizados.addToFixedNote(category, itemId, 'bloqueado', text);
+                }
                 // Append 🚫 reason to the note
                 const dateStr = this.getDateString();
                 const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
@@ -407,6 +422,10 @@ class HabitTrackerApp {
                 const text = input.value.trim();
                 if (!text || text.length < 5) return;
                 cleanup();
+                // Save to aprendizados tab
+                if (typeof Aprendizados !== 'undefined' && text) {
+                    Aprendizados.addToFixedNote(category, itemId, 'parcialmente', text);
+                }
                 // Append ⏳ pending note to today's item record
                 const dateStr = this.getDateString();
                 const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
@@ -1245,7 +1264,73 @@ class HabitTrackerApp {
         // Fechar qualquer outro dropdown aberto
         this._closeAllItemAprendDropdowns();
 
-        // Ler todas as notas do item (formato novo notes:[] e legado)
+        // Construir dropdown
+        const dropdown = document.createElement('div');
+        dropdown.className = 'item-aprend-dropdown';
+        dropdown.dataset.itemId = itemId;
+        dropdown.dataset.category = category;
+        dropdown._noteEditable = noteEditable; // referência para refresh
+
+        // Preencher conteúdo
+        await this._fillAprendDropdown(dropdown, category, itemId, noteEditable);
+
+        // Portal: mover para body com position fixed
+        dropdown.style.position = 'fixed';
+        dropdown.style.top = '-9999px';
+        dropdown.style.left = '-9999px';
+        document.body.appendChild(dropdown);
+        btn.classList.add('active');
+
+        // Posicionar após render
+        requestAnimationFrame(() => this._positionAprendDropdown(dropdown, btn));
+
+        // Fechar ao clicar fora; scroll DENTRO do dropdown é permitido
+        const closeHandler = (ev) => {
+            if (!dropdown.contains(ev.target) && ev.target !== btn) {
+                this._closeAllItemAprendDropdowns();
+                document.removeEventListener('click', closeHandler, true);
+                window.removeEventListener('scroll', scrollClose, true);
+            }
+        };
+        const scrollClose = (ev) => {
+            const path = ev.composedPath ? ev.composedPath() : [ev.target];
+            if (path.includes(dropdown)) return;
+            this._closeAllItemAprendDropdowns();
+            document.removeEventListener('click', closeHandler, true);
+            window.removeEventListener('scroll', scrollClose, true);
+        };
+        setTimeout(() => {
+            document.addEventListener('click', closeHandler, true);
+            window.addEventListener('scroll', scrollClose, true);
+        }, 0);
+    }
+
+    _positionAprendDropdown(dropdown, btn) {
+        const btnRect = btn.getBoundingClientRect();
+        const dropRect = dropdown.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - btnRect.bottom;
+        const spaceAbove = btnRect.top;
+        if (spaceBelow < dropRect.height + 8 && spaceAbove > dropRect.height) {
+            dropdown.style.top = `${btnRect.top - dropRect.height - 6}px`;
+        } else {
+            dropdown.style.top = `${btnRect.bottom + 4}px`;
+        }
+        const left = Math.min(btnRect.right - dropRect.width, window.innerWidth - dropRect.width - 8);
+        dropdown.style.left = `${Math.max(8, left)}px`;
+    }
+
+    // Preenche (ou re-preenche) o conteúdo de um dropdown já existente
+    async _fillAprendDropdown(dropdown, category, itemId, noteEditable) {
+        // Guardar grupos abertos antes de limpar
+        const openGroups = new Set();
+        dropdown.querySelectorAll('.item-aprend-note-group.open').forEach(g => {
+            const label = g.querySelector('.aprend-note-label')?.textContent;
+            if (label) openGroups.add(label);
+        });
+
+        dropdown.innerHTML = '';
+
+        // Ler todas as notas do item
         let aprendData = {};
         try { aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}'); } catch {}
 
@@ -1255,7 +1340,6 @@ class HabitTrackerApp {
             if (Array.isArray(rawItem.notes) && rawItem.notes.length > 0) {
                 notes = rawItem.notes;
             } else if (typeof rawItem.content !== 'undefined') {
-                // Formato legado: criar nota virtual
                 notes = [{
                     id: '__legacy__',
                     title: '',
@@ -1265,7 +1349,7 @@ class HabitTrackerApp {
             }
         }
 
-        // Ler nota atual do item no hoje (para saber quais linhas já foram adicionadas)
+        // Ler nota atual do item no hoje
         const dateStr = this.getDateString();
         let currentNoteText = '';
         try {
@@ -1276,13 +1360,6 @@ class HabitTrackerApp {
             currentNoteText.split('\n').map(l => l.trim()).filter(Boolean)
         );
 
-        // Construir dropdown
-        const dropdown = document.createElement('div');
-        dropdown.className = 'item-aprend-dropdown';
-        dropdown.dataset.itemId = itemId;
-        dropdown.dataset.category = category;
-
-        // Contar total de linhas com conteúdo em todas as notas
         const totalLines = notes.reduce((acc, n) =>
             acc + (n.content || '').split('\n').filter(l => l.trim()).length, 0);
 
@@ -1302,30 +1379,24 @@ class HabitTrackerApp {
                 const noteLines = (note.content || '').split('\n').filter(l => l.trim() !== '');
                 if (noteLines.length === 0) return;
 
-                // Wrapper do grupo (accordion item)
                 const groupEl = document.createElement('div');
-                groupEl.className = 'item-aprend-note-group';
+                const label = note.title || (notes.length > 1 ? `Nota ${noteIdx + 1}` : 'Nota');
+                groupEl.className = 'item-aprend-note-group' + (openGroups.has(label) ? ' open' : '');
 
-                // Cabeçalho clicável — sempre visível, começa fechado
                 const headerEl = document.createElement('div');
                 headerEl.className = 'item-aprend-note-header collapsible';
-                const label = note.title || (notes.length > 1 ? `Nota ${noteIdx + 1}` : 'Nota');
                 headerEl.innerHTML = `<span class="aprend-note-label">${label}</span><span class="aprend-note-chevron">▶</span>`;
 
-                // Container das linhas (fechado por padrão)
                 const linesEl = document.createElement('div');
                 linesEl.className = 'item-aprend-note-lines';
 
-                // Toggle ao clicar no header
                 headerEl.addEventListener('mousedown', (ev) => {
                     ev.preventDefault();
                     ev.stopPropagation();
                     groupEl.classList.toggle('open');
                 });
 
-                // Renderizar linhas
                 noteLines.forEach((lineText, lineIdx) => {
-                    // realIdx = índice no content.split('\n') incluindo linhas vazias
                     const allLines = (note.content || '').split('\n');
                     let realIdx = 0, nonEmptyCount = 0;
                     for (let i = 0; i < allLines.length; i++) {
@@ -1354,27 +1425,22 @@ class HabitTrackerApp {
                         ev.preventDefault();
                         ev.stopPropagation();
 
-                        // Inserir no noteEditable
                         const currentText = noteEditable.innerText.trim();
                         noteEditable.innerText = currentText
                             ? (currentText.includes(lineText) ? currentText : currentText + '\n' + lineText)
                             : lineText;
 
-                        // Salvar imediatamente
                         const existingData = await StorageManager.getItemStatus(dateStr, category, itemId);
                         await StorageManager.saveItemStatus(dateStr, category, itemId, existingData.status || 'none', noteEditable.innerText.trim());
 
-                        // Marcar verde na aba Aprendizados
                         if (typeof Aprendizados !== 'undefined' && Aprendizados.setLineChecked) {
                             Aprendizados.setLineChecked(category, itemId, realIdx, true, note.id);
                         }
 
-                        // Atualizar visual da linha no dropdown imediatamente
                         lineEl.classList.add('done');
                         lineEl.querySelector('.item-aprend-icon')?.classList.add('done');
                         lineEl.querySelector('.item-aprend-icon').innerHTML = '<polyline points="20 6 9 17 4 12"></polyline>';
 
-                        // Fechar dropdown com pequeno delay para mostrar o verde
                         setTimeout(() => this._closeAllItemAprendDropdowns(), 350);
                         this.renderTodayView();
                     });
@@ -1386,7 +1452,6 @@ class HabitTrackerApp {
                 dropdown.appendChild(groupEl);
             });
 
-            // Botão "Ver todas as notas" no rodapé
             const footerNotes = document.createElement('div');
             footerNotes.className = 'item-aprend-footer';
             footerNotes.innerHTML = '<button class="item-aprend-goto-btn">📚 Ver todas as notas</button>';
@@ -1397,51 +1462,17 @@ class HabitTrackerApp {
             });
             dropdown.appendChild(footerNotes);
         }
+    }
 
-        // Portal: mover para body com position fixed
-        dropdown.style.position = 'fixed';
-        dropdown.style.top = '-9999px';
-        dropdown.style.left = '-9999px';
-        document.body.appendChild(dropdown);
-        btn.classList.add('active');
-
-        // Posicionar após render
-        requestAnimationFrame(() => {
-            const btnRect = btn.getBoundingClientRect();
-            const dropRect = dropdown.getBoundingClientRect();
-            const spaceBelow = window.innerHeight - btnRect.bottom;
-            const spaceAbove = btnRect.top;
-
-            if (spaceBelow < dropRect.height + 8 && spaceAbove > dropRect.height) {
-                dropdown.style.top = `${btnRect.top - dropRect.height - 6}px`;
-            } else {
-                dropdown.style.top = `${btnRect.bottom + 4}px`;
-            }
-
-            const left = Math.min(btnRect.right - dropRect.width, window.innerWidth - dropRect.width - 8);
-            dropdown.style.left = `${Math.max(8, left)}px`;
-        });
-
-        // Fechar ao clicar fora; scroll DENTRO do dropdown é permitido
-        const closeHandler = (ev) => {
-            if (!dropdown.contains(ev.target) && ev.target !== btn) {
-                this._closeAllItemAprendDropdowns();
-                document.removeEventListener('click', closeHandler, true);
-                window.removeEventListener('scroll', scrollClose, true);
-            }
-        };
-        const scrollClose = (ev) => {
-            // Ignorar scroll que originou DENTRO do dropdown (permite rolar a lista)
-            const path = ev.composedPath ? ev.composedPath() : [ev.target];
-            if (path.includes(dropdown)) return;
-            this._closeAllItemAprendDropdowns();
-            document.removeEventListener('click', closeHandler, true);
-            window.removeEventListener('scroll', scrollClose, true);
-        };
-        setTimeout(() => {
-            document.addEventListener('click', closeHandler, true);
-            window.addEventListener('scroll', scrollClose, true);
-        }, 0);
+    // API pública: chamada por aprendizados.js após salvar/deletar nota
+    async refreshItemAprendDropdown(category, itemId) {
+        const dropdown = document.querySelector(`.item-aprend-dropdown[data-item-id="${itemId}"][data-category="${category}"]`);
+        if (!dropdown) return;
+        const noteEditable = dropdown._noteEditable;
+        const btn = document.querySelector(`[data-category="${category}"][data-item-id="${itemId}"] .btn-aprend-item`);
+        await this._fillAprendDropdown(dropdown, category, itemId, noteEditable);
+        // Reposicionar caso o tamanho mudou
+        if (btn) requestAnimationFrame(() => this._positionAprendDropdown(dropdown, btn));
     }
 
     async showView(view, opts = {}) {
@@ -1491,6 +1522,8 @@ class HabitTrackerApp {
             }
             this._updateHistoryDateLabel();
             await this.renderHistoryAsSpreadsheet(this.getDateString(this.historyDate));
+            // Re-mede após o filtro estar visível (necessário no iOS PWA para calcular --history-filter-h)
+            requestAnimationFrame(() => this._syncHeaderHeight());
         } else if (view === 'reports') {
             document.getElementById('reportsView').classList.remove('hidden');
             document.getElementById('btnReports').classList.add('active');
@@ -3080,6 +3113,17 @@ class HabitTrackerApp {
             // Build header with mic button (custom status dropdown will be inserted programmatically)
             const hasNoteInitially = !!(itemData.note && itemData.note.trim());
             const hasLinksInitially = !!(itemData.links && itemData.links.length > 0);
+
+            // Verificar se o item tem notas de aprendizados
+            let hasAprendNotes = false;
+            try {
+                const aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
+                const itemAprendEntry = aprendData[category]?.[item.id];
+                const aprendNotes = Array.isArray(itemAprendEntry?.notes) ? itemAprendEntry.notes : [];
+                hasAprendNotes = aprendNotes.some(n => n.content && n.content.trim().length > 0)
+                    || !!(itemAprendEntry?.content && itemAprendEntry.content.trim());
+            } catch {}
+
             const headerHtml = `
                 <div class="item-header">
                     <span class="item-name" tabindex="0">${this._escapeHtml(item.name)}</span>
@@ -3087,7 +3131,7 @@ class HabitTrackerApp {
                         <button class="btn-google-search" title="Pesquisar nota no Google" aria-label="Pesquisar no Google" style="display:${hasNoteInitially ? 'inline-flex' : 'none'};align-items:center;justify-content:center;padding:2px 4px;background:none;border:none;cursor:pointer;border-radius:4px;opacity:0.75;" tabindex="-1"><img src="https://www.google.com/favicon.ico" alt="Google" width="14" height="14" style="display:block;pointer-events:none;"></button>
                         <button class="btn-link-item${hasLinksInitially ? ' has-links' : ''}" title="Vincular a outro item" aria-label="Vincular item">🔗</button>
                         <button class="btn-next-day" title="Passar para próximo dia" aria-label="Próximo dia">⏭</button>
-                        <button class="btn-aprend-item" title="Inserir nota de Aprendizados" aria-label="Aprendizados">📚</button>
+                        <button class="btn-aprend-item${hasAprendNotes ? ' has-notes' : ''}" title="Inserir nota de Aprendizados" aria-label="Aprendizados">📚</button>
                         <button class="btn-mic" title="Gravar nota por voz" aria-label="Gravar nota por voz">🎙️</button>
                     </div>
                 </div>
@@ -4141,7 +4185,7 @@ class HabitTrackerApp {
 
                 for (let i = 0; i < rowCount; i++) {
                     const tr = document.createElement('tr');
-                    tr.className = 'hs-tr' + (i > 0 ? ' hs-tr-cont' : '') + (i === 0 ? ' hs-tr-nav' : '');
+                    tr.className = 'hs-tr' + (i > 0 ? ' hs-tr-cont' : '') + (i === 0 ? ' hs-tr-nav' : '') + (row.status === 'pular' ? ' hs-tr-pular' : '');
                     if (i === 0) {
                         tr.dataset.itemId   = row.id;
                         tr.dataset.category = row.category;
