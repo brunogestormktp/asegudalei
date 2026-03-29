@@ -195,24 +195,17 @@ class HabitTrackerApp {
 
     _syncHistoryFilterHeight() {
         if (!document.documentElement.classList.contains('ios-pwa')) return;
-        const filterEl = document.getElementById('historyStatusFilter');
-        if (!filterEl) return;
-        // Aguarda o elemento estar pintado — tenta até 8 frames
+        // Garante que --date-sel-h está correto com o date-selector do historyView visível
         const tryMeasure = (attempts) => {
-            // Forçar medição do date-selector do historyView agora que está visível
             const dateSelEl = document.querySelector('#historyView .date-selector');
             if (dateSelEl) {
                 const dsH = dateSelEl.getBoundingClientRect().height;
                 if (dsH > 0) {
                     document.documentElement.style.setProperty('--date-sel-h', Math.round(dsH) + 'px');
+                    return;
                 }
             }
-            const fH = filterEl.getBoundingClientRect().height;
-            if (fH > 0) {
-                document.documentElement.style.setProperty('--history-filter-h', Math.round(fH) + 'px');
-            } else if (attempts > 0) {
-                requestAnimationFrame(() => tryMeasure(attempts - 1));
-            }
+            if (attempts > 0) requestAnimationFrame(() => tryMeasure(attempts - 1));
         };
         requestAnimationFrame(() => tryMeasure(8));
     }
