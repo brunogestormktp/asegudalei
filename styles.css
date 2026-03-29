@@ -681,24 +681,16 @@ body {
     margin-top: var(--date-sel-h, 54px);
 }
 
-/* iOS PWA — historyStatusFilter fixed abaixo do date-selector fixed. */
+/* iOS PWA — historyStatusFilter fica no fluxo normal (rola com o conteúdo).
+   Só o date-selector é fixed. */
 .ios-pwa #historyStatusFilter {
-    position: fixed;
-    top: calc(var(--header-h, 73px) + var(--date-sel-h, 54px));
-    left: 0;
-    right: 0;
-    z-index: 89;
-    background: rgba(4, 34, 53, 0.97);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    padding: 8px 12px 10px;
-    border-bottom: 1px solid rgba(149, 211, 238, 0.08);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    position: static;
+    z-index: auto;
 }
 
-/* Compensa o espaço do date-selector + filtro fixos no iOS PWA */
+/* Compensa apenas o date-selector fixed no iOS PWA */
 .ios-pwa #historyContent {
-    margin-top: calc(var(--date-sel-h, 54px) + var(--history-filter-h, 50px));
+    margin-top: var(--date-sel-h, 54px);
 }
 
 .date-selector h2 {
