@@ -1584,6 +1584,8 @@ class HabitTrackerApp {
     }
 
     changeDate(days) {
+        this._todayScrollTop = window.scrollY; // preservar posição ao trocar de dia
+        this._pendingScrollRestore = true;
         this.currentDate.setDate(this.currentDate.getDate() + days);
         this.renderTodayView();
     }
@@ -4139,12 +4141,6 @@ class HabitTrackerApp {
 
                 // Filtro de busca
                 if (searchQuery && !itemDef.name.toLowerCase().includes(searchQuery) && !note.toLowerCase().includes(searchQuery)) continue;
-
-                // Ocultar completamente vazios só se filtro = all e sem busca
-                if (statusFilter === 'all' && !searchQuery) {
-                    const isEmpty = (!status || status === 'none') && (!note || !note.trim());
-                    if (isEmpty) continue;
-                }
 
                 rows.push({ name: itemDef.name, status, note, id: itemDef.id, category: cat.key });
             }
