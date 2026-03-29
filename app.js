@@ -14,6 +14,8 @@ class HabitTrackerApp {
         // Scroll memory for "Hoje" tab
         this._todayScrollTop = 0;
         this._pendingScrollRestore = false;
+        // Scroll memory for "Histórico" tab
+        this._historyScrollTop = 0;
         // Charts
         this.performanceChart = null;
         this.groupChart = null;
@@ -226,6 +228,9 @@ class HabitTrackerApp {
             const dateStr = this.historyDate
                 ? this.getDateString(this.historyDate)
                 : this.getDateString(new Date());
+            // Preserva scroll durante re-render por sync
+            this._historyScrollTop = window.scrollY;
+            this._pendingHistoryScrollRestore = true;
             this.renderHistoryAsSpreadsheet(dateStr);
         } else if (this.currentView === 'reports') {
             this.renderReports(this.currentReportPeriod || 'week');
@@ -1509,6 +1514,8 @@ class HabitTrackerApp {
         const mainContent = document.getElementById('mainContent');
         if (this.currentView === 'today') {
             this._todayScrollTop = window.scrollY;
+        } else if (this.currentView === 'history') {
+            this._historyScrollTop = window.scrollY;
         } else if (this.currentView === 'reports') {
             this._reportsScrollTop = window.scrollY;
         }
@@ -1538,7 +1545,8 @@ class HabitTrackerApp {
         } else if (view === 'history') {
             document.getElementById('historyView').classList.remove('hidden');
             document.getElementById('btnHistory').classList.add('active');
-            window.scrollTo(0, 0);
+            // Scroll será restaurado após o render (via _pendingHistoryScrollRestore)
+            this._pendingHistoryScrollRestore = true;
             // Inicializa a data do histórico no dia de hoje
             if (!this.historyDate) {
                 this.historyDate = new Date();
@@ -1997,12 +2005,14 @@ class HabitTrackerApp {
 
     changeHistoryDate(days) {
         this._historyDateRange = null; // exit range mode when navigating days
+        this._historyScrollTop = 0; // reset saved scroll when changing date
         if (!this.historyDate) {
             this.historyDate = new Date();
             this.historyDate.setHours(12, 0, 0, 0);
         }
         this.historyDate.setDate(this.historyDate.getDate() + days);
         this._updateHistoryDateLabel();
+        window.scrollTo(0, 0);
         this.renderHistoryAsSpreadsheet(this.getDateString(this.historyDate));
     }
 
@@ -4256,6 +4266,15 @@ class HabitTrackerApp {
 
         if (!hasAny) {
             this.renderEmptyHistoryState(container);
+        }
+
+        // Restaurar scroll da aba Histórico após o DOM estar montado
+        if (this._pendingHistoryScrollRestore) {
+            this._pendingHistoryScrollRestore = false;
+            const scrollTarget = this._historyScrollTop || 0;
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                window.scrollTo({ top: scrollTarget, behavior: 'instant' });
+            }));
         }
     }
 
