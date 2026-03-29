@@ -697,9 +697,9 @@ body {
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 
-/* Compensa o espaço do filtro fixed no iOS PWA */
+/* Compensa o espaço do date-selector + filtro, ambos fixed no iOS PWA */
 .ios-pwa #historyContent {
-    margin-top: var(--history-filter-h, 52px);
+    margin-top: calc(var(--date-sel-h, 54px) + var(--history-filter-h, 52px));
 }
 
 .date-selector h2 {
