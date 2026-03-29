@@ -681,12 +681,15 @@ body {
     margin-top: var(--date-sel-h, 54px);
 }
 
-/* iOS PWA — historyStatusFilter no fluxo normal, rola com o conteúdo.
-   margin-top compensa o .date-selector fixed (que saiu do fluxo). */
+/* iOS PWA — padding-top no historyView empurra todo o conteúdo abaixo do
+   .date-selector fixed. Igual ao margin-top no .quick-nav do todayView. */
+.ios-pwa #historyView {
+    padding-top: var(--date-sel-h, 54px);
+}
+
 .ios-pwa #historyStatusFilter {
     position: static;
     z-index: auto;
-    margin-top: var(--date-sel-h, 54px);
 }
 
 .ios-pwa #historyContent {
