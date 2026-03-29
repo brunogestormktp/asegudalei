@@ -684,21 +684,22 @@ body {
 /* iOS PWA — historyStatusFilter fica fixed abaixo do date-selector */
 .ios-pwa #historyStatusFilter {
     position: fixed;
-    top: var(--history-filter-top, 127px);
+    top: calc(var(--header-h, 73px) + var(--date-sel-h, 54px));
     left: 0;
     right: 0;
     z-index: 89;
-    background: rgba(4, 34, 53, 0.96);
+    background: rgba(4, 34, 53, 0.97);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    padding: 8px 12px 8px;
+    padding: 8px 12px 10px;
     margin: 0;
     border-bottom: 1px solid rgba(149, 211, 238, 0.08);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 
 /* Compensa o espaço do filtro fixed no iOS PWA */
 .ios-pwa #historyContent {
-    margin-top: calc(var(--date-sel-h, 54px) + var(--history-filter-h, 52px));
+    margin-top: var(--history-filter-h, 52px);
 }
 
 .date-selector h2 {

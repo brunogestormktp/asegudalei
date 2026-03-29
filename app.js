@@ -168,29 +168,53 @@ class HabitTrackerApp {
     // Garante que o date-selector sticky/fixed nunca fique sob o header
     _syncHeaderHeight() {
         const headerEl = document.querySelector('.header');
-        const dateSelEl = document.querySelector('.date-selector');
-        if (headerEl) {
-            const h = headerEl.getBoundingClientRect().height;
-            document.documentElement.style.setProperty('--header-h', Math.round(h) + 'px');
+        if (!headerEl) return;
 
-            // No iOS PWA, o date-selector usa position:fixed (sai do fluxo),
-            // setar --date-sel-h para que o CSS compense com margin-top no irmão seguinte
-            if (document.documentElement.classList.contains('ios-pwa') && dateSelEl) {
-                const dsH = dateSelEl.getBoundingClientRect().height;
-                document.documentElement.style.setProperty('--date-sel-h', Math.round(dsH) + 'px');
+        const h = headerEl.getBoundingClientRect().height;
+        document.documentElement.style.setProperty('--header-h', Math.round(h) + 'px');
 
-                // Posição do historyStatusFilter = abaixo do date-selector
-                const filterTop = Math.round(h) + Math.round(dsH);
-                document.documentElement.style.setProperty('--history-filter-top', filterTop + 'px');
+        if (!document.documentElement.classList.contains('ios-pwa')) return;
 
-                // Altura do filtro para compensar no historyContent
-                const filterEl = document.getElementById('historyStatusFilter');
-                if (filterEl) {
-                    const fH = filterEl.getBoundingClientRect().height;
-                    document.documentElement.style.setProperty('--history-filter-h', Math.round(fH) + 'px');
-                }
+        // Medir o date-selector visível (ignora os de views ocultas)
+        const dateSelEl = document.querySelector('.view:not(.hidden) .date-selector')
+                       || document.querySelector('.date-selector');
+        if (dateSelEl) {
+            const dsH = dateSelEl.getBoundingClientRect().height;
+            document.documentElement.style.setProperty('--date-sel-h', Math.round(dsH) + 'px');
+        }
+
+        // Medir filtro do histórico (só quando visível)
+        const filterEl = document.getElementById('historyStatusFilter');
+        if (filterEl && filterEl.offsetParent !== null) {
+            const fH = filterEl.getBoundingClientRect().height;
+            if (fH > 0) {
+                document.documentElement.style.setProperty('--history-filter-h', Math.round(fH) + 'px');
             }
         }
+    }
+
+    _syncHistoryFilterHeight() {
+        if (!document.documentElement.classList.contains('ios-pwa')) return;
+        const filterEl = document.getElementById('historyStatusFilter');
+        if (!filterEl) return;
+        // Aguarda o elemento estar pintado — tenta até 8 frames
+        const tryMeasure = (attempts) => {
+            // Forçar medição do date-selector do historyView agora que está visível
+            const dateSelEl = document.querySelector('#historyView .date-selector');
+            if (dateSelEl) {
+                const dsH = dateSelEl.getBoundingClientRect().height;
+                if (dsH > 0) {
+                    document.documentElement.style.setProperty('--date-sel-h', Math.round(dsH) + 'px');
+                }
+            }
+            const fH = filterEl.getBoundingClientRect().height;
+            if (fH > 0) {
+                document.documentElement.style.setProperty('--history-filter-h', Math.round(fH) + 'px');
+            } else if (attempts > 0) {
+                requestAnimationFrame(() => tryMeasure(attempts - 1));
+            }
+        };
+        requestAnimationFrame(() => tryMeasure(8));
     }
 
     // Re-renderiza a view ativa atual (usado após sync do Supabase)
@@ -1524,6 +1548,7 @@ class HabitTrackerApp {
             await this.renderHistoryAsSpreadsheet(this.getDateString(this.historyDate));
             // Re-mede após o filtro estar visível (necessário no iOS PWA para calcular --history-filter-h)
             requestAnimationFrame(() => this._syncHeaderHeight());
+            this._syncHistoryFilterHeight();
         } else if (view === 'reports') {
             document.getElementById('reportsView').classList.remove('hidden');
             document.getElementById('btnReports').classList.add('active');
