@@ -2360,8 +2360,8 @@ class HabitTrackerApp {
         const imgMarker   = `[img:${url}]`;
         const newText     = currentText ? `${currentText}\n${imgMarker}` : imgMarker;
 
-        // Atualizar conteúdo do editable (texto cru com o marcador)
-        noteEditable.innerText = newText;
+        // Atualizar conteúdo do editable mostrando as imagens renderizadas
+        this._textToEditable(noteEditable, newText);
 
         // Salvar e depois sair do modo edição para que _updateNoteDisplay
         // renderize o .item-note com a miniatura visível
@@ -3212,7 +3212,7 @@ class HabitTrackerApp {
             noteEditable.className = 'item-note-editable';
             noteEditable.contentEditable = true;
             noteEditable.spellcheck = true;
-            noteEditable.innerText = noteText;
+            this._textToEditable(noteEditable, noteText);
             // Insert editable note (after header)
             const headerEl = itemEl.querySelector('.item-header');
             headerEl.insertAdjacentElement('afterend', noteEditable);
@@ -3260,7 +3260,8 @@ class HabitTrackerApp {
                     clickedElement.closest('.item-aprend-dropdown') ||
                     clickedElement.closest('.item-week-bar') ||
                     clickedElement.closest('.note-img-remove') ||
-                    clickedElement.closest('.note-img-thumb')) {
+                    clickedElement.closest('.note-img-thumb') ||
+                    clickedElement.closest('.note-img-wrap')) {
                     return;
                 }
 
@@ -3809,6 +3810,51 @@ class HabitTrackerApp {
         return tagsHtml + textHtml;
     }
 
+    // Versão readonly de _buildNoteHtml — sem botão de remover imagem.
+    // Usada no histórico para renderizar miniaturas sem controles de edição.
+    _buildNoteHtmlReadonly(text) {
+        if (!text || !text.trim()) return '';
+        const lines = text.split('\n');
+        const tagParts  = [];
+        const textParts = [];
+        const imgRegex  = /\[img:(.+?)\](?:\s*)$/;
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            const imgMatch = trimmed.match(imgRegex);
+            if (imgMatch && trimmed.startsWith('[img:')) {
+                const src = imgMatch[1].trim();
+                textParts.push(
+                    `<span class="note-img-wrap note-img-wrap--readonly">` +
+                    `<img class="note-img-thumb" src="${this._escapeHtml(src)}" data-src="${this._escapeHtml(src)}" alt="imagem" loading="lazy">` +
+                    `</span>`
+                );
+            } else if (trimmed.startsWith('🧠')) {
+                const content = trimmed.slice(2).trim();
+                tagParts.push(`<span class="status-note-tag status-note-tag--concluido">🧠 ${this._escapeHtml(content)}</span>`);
+            } else if (trimmed.startsWith('🚫')) {
+                const content = trimmed.slice(2).trim();
+                tagParts.push(`<span class="status-note-tag status-note-tag--bloqueado">🚫 ${this._escapeHtml(content)}</span>`);
+            } else if (trimmed.startsWith('⏳')) {
+                const content = trimmed.slice(2).trim();
+                tagParts.push(`<span class="status-note-tag status-note-tag--parcialmente">⏳ ${this._escapeHtml(content)}</span>`);
+            } else {
+                const urlRegex = /(https?:\/\/[^\s\]]+)/g;
+                const parts = line.split(urlRegex);
+                const linked = parts.map((part, i) => {
+                    if (i % 2 === 1) {
+                        return `<a href="${this._escapeHtml(part)}" target="_blank" rel="noopener noreferrer" class="note-link">${this._escapeHtml(part)}</a>`;
+                    }
+                    return this._escapeHtml(part);
+                }).join('');
+                textParts.push(linked);
+            }
+        }
+        return tagParts.join('') + textParts.join('<br>');
+    }
+
     _escapeHtml(str) {
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
@@ -3819,7 +3865,38 @@ class HabitTrackerApp {
     }
 
     // Extrai texto de um contentEditable preservando quebras de linha corretamente
+    // Popula um contentEditable com o texto, convertendo [img:URL] em <img> visíveis.
+    // As imagens recebem data-img-marker="URL" para serem reconvertidas em _getEditableText.
+    _textToEditable(el, text) {
+        el.innerHTML = '';
+        if (!text) return;
+        const imgRegex = /\[img:(.+?)\](?:\s*)$/;
+        const lines = text.split('\n');
+        lines.forEach((line, idx) => {
+            const trimmed = line.trim();
+            const imgMatch = trimmed.match(imgRegex);
+            if (imgMatch && trimmed.startsWith('[img:')) {
+                const src = imgMatch[1].trim();
+                const img = document.createElement('img');
+                img.src = src;
+                img.dataset.imgMarker = src;
+                img.className = 'note-img-thumb note-img-editable';
+                img.alt = 'imagem';
+                img.loading = 'lazy';
+                el.appendChild(img);
+            } else {
+                // Texto normal: nó de texto
+                el.appendChild(document.createTextNode(line));
+            }
+            // Separador entre linhas (exceto na última)
+            if (idx < lines.length - 1) {
+                el.appendChild(document.createElement('br'));
+            }
+        });
+    }
+
     // innerText pode colapsar \n em alguns browsers/situações; esta função é robusta
+    // Reconhece <img data-img-marker="URL"> e converte de volta para [img:URL]
     _getEditableText(el) {
         let text = '';
         const walk = (node) => {
@@ -3827,7 +3904,11 @@ class HabitTrackerApp {
                 text += node.nodeValue;
             } else if (node.nodeType === Node.ELEMENT_NODE) {
                 const tag = node.nodeName.toUpperCase();
-                if (tag === 'BR') {
+                if (tag === 'IMG' && node.dataset.imgMarker) {
+                    // Imagem inserida via _textToEditable ou paste — serializar de volta
+                    if (text.length > 0 && !text.endsWith('\n')) text += '\n';
+                    text += `[img:${node.dataset.imgMarker}]`;
+                } else if (tag === 'BR') {
                     text += '\n';
                 } else if (tag === 'DIV' || tag === 'P') {
                     // Bloco = nova linha, mas não adicionar \n no início
@@ -3995,9 +4076,9 @@ class HabitTrackerApp {
         const noteWithLinks = this._buildNoteHtml(text);
         const newInner = `${noteWithLinks}<button class="btn-note-delete" data-item-id="${itemId}" data-category="${category}" title="Apagar nota">✖</button>`;
 
-        // Sincronizar o editable com o texto salvo (preserva \n para próxima edição)
+        // Sincronizar o editable com o texto salvo (preserva imagens para próxima edição)
         if (noteEditable && noteEditable.style.display === 'none') {
-            noteEditable.innerText = text;
+            this._textToEditable(noteEditable, text);
         }
 
         if (noteDisplay) {
@@ -4078,7 +4159,7 @@ class HabitTrackerApp {
                         <span class="hs-status-dot" style="background:${color}"></span>
                         <span class="hs-item-name">${itemDef.name}</span>
                         <span class="hs-status-label" style="color:${color}">${label}</span>
-                        ${note ? `<span class="hs-note">${note}</span>` : ''}
+                        ${note ? `<span class="hs-note">${this._buildNoteHtmlReadonly(note)}</span>` : ''}
                     </div>`);
                 }
             }
@@ -4273,7 +4354,7 @@ class HabitTrackerApp {
                         tr.title = 'Ver no Hoje';
                     }
 
-                    const notaCell  = notasLines[i] ? this.linkifyText(notasLines[i]) : '<span class="hs-empty-cell">—</span>';
+                    const notaCell  = notasLines[i] ? this._buildNoteHtmlReadonly(notasLines[i]) : '<span class="hs-empty-cell">—</span>';
                     const obsCell   = obsLines[i]   ? fmtObs(obsLines[i])            : '<span class="hs-empty-cell">—</span>';
 
                     if (i === 0) {
@@ -4656,7 +4737,7 @@ class HabitTrackerApp {
         if (hasNote) {
             const notePanel = document.createElement('div');
             notePanel.className = 'note-panel-visible';
-            const noteWithLinks = this.linkifyText(itemInfo.note);
+            const noteWithLinks = this._buildNoteHtmlReadonly(itemInfo.note);
             notePanel.innerHTML = noteWithLinks;
             wrapper.appendChild(notePanel);
         }

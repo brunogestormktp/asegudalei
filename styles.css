@@ -1775,6 +1775,21 @@ mark.tsf-highlight {
     display: none;
 }
 
+/* ── Imagem inline no modo edição (.item-note-editable) ───────────── */
+.item-note-editable .note-img-editable {
+    display: inline-block;
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid rgba(149, 211, 238, 0.5);
+    vertical-align: middle;
+    margin: 3px 6px 3px 0;
+    cursor: default;
+    pointer-events: none;
+    background: rgba(1, 57, 114, 0.3);
+}
+
 /* ── Imagem colada na nota: miniatura inline ──────────────────────── */
 .note-img-wrap {
     position: relative;
