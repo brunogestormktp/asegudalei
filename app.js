@@ -2478,8 +2478,58 @@ class HabitTrackerApp {
         saveIndicator.className = 'weekbar-tooltip-save-indicator';
         tooltip.appendChild(saveIndicator);
 
-        // Auto-save com debounce
+        // Declarar saveTimer aqui para ser acessível pelo botão nextDay e pelo autoSave
         let saveTimer = null;
+        const nextDayBtn = document.createElement('button');
+        nextDayBtn.className = 'weekbar-tooltip-next-day';
+        nextDayBtn.title = 'Passar para próximo dia';
+        nextDayBtn.textContent = '⏭ Passar para amanhã';
+        nextDayBtn.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+
+            // Calcular próximo dia a partir de dateStr (não de "hoje")
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const nextDate    = new Date(y, m - 1, d + 1);
+            const nextDateStr = this.getDateString(nextDate);
+
+            // Salvar nota atual antes de avançar (se houver texto pendente)
+            clearTimeout(saveTimer);
+            const currentNote = textarea.value.trim();
+            if (currentNote !== (block.dataset.note || '').trim()) {
+                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                await StorageManager.saveItemStatus(
+                    dateStr, category, itemId,
+                    existing.status || 'none',
+                    currentNote,
+                    existing.links || null
+                );
+                block.dataset.note = currentNote;
+            }
+
+            // Ler nota/status do próximo dia
+            const nextData   = await StorageManager.getItemStatus(nextDateStr, category, itemId);
+            const nextNote   = (nextData.note || '').trim();
+            const nextStatus = nextData.status || 'none';
+
+            // Apenas copiar a nota para o próximo dia — se já tiver nota, preserva
+            const mergedNote = nextNote ? nextNote : currentNote;
+
+            await StorageManager.saveItemStatus(nextDateStr, category, itemId, nextStatus, mergedNote);
+
+            // Feedback visual no botão
+            nextDayBtn.textContent = '✅ Copiado!';
+            nextDayBtn.disabled = true;
+
+            // Fechar tooltip e re-renderizar view ativa
+            setTimeout(() => {
+                this._hideWeekBarTooltip(true);
+                if (this.currentView === 'today' || this.currentView === 'history') {
+                    this.renderTodayView();
+                }
+            }, 700);
+        });
+        tooltip.appendChild(nextDayBtn);
+
         const autoSave = async () => {
             const newNote = textarea.value.trim();
             saveIndicator.textContent = 'salvando…';

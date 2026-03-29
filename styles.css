@@ -1494,7 +1494,34 @@ mark.tsf-highlight {
     opacity: 1;
 }
 
-/* Editable tooltip: ajustar padding e largura */
+/* Botão "Passar para próximo dia" dentro do tooltip */
+.weekbar-tooltip-next-day {
+    display: block;
+    width: 100%;
+    margin-top: 7px;
+    padding: 5px 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 6px;
+    color: rgba(149, 211, 238, 0.75);
+    font-size: 13px;
+    font-family: 'Quicksand', sans-serif;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s, color 0.15s;
+    letter-spacing: 0.01em;
+}
+.weekbar-tooltip-next-day:hover {
+    background: rgba(149, 211, 238, 0.12);
+    color: rgba(149, 211, 238, 1);
+}
+.weekbar-tooltip-next-day:active {
+    background: rgba(149, 211, 238, 0.2);
+}
+.weekbar-tooltip-next-day:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
 .weekbar-tooltip--editable {
     min-width: 220px;
     max-width: 320px;
