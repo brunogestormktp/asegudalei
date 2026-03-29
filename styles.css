@@ -681,16 +681,16 @@ body {
     margin-top: var(--date-sel-h, 54px);
 }
 
-/* iOS PWA — historyStatusFilter fica no fluxo normal (rola com o conteúdo).
-   Só o date-selector é fixed. */
+/* iOS PWA — historyStatusFilter no fluxo normal, rola com o conteúdo.
+   margin-top compensa o .date-selector fixed (que saiu do fluxo). */
 .ios-pwa #historyStatusFilter {
     position: static;
     z-index: auto;
+    margin-top: var(--date-sel-h, 54px);
 }
 
-/* Compensa apenas o date-selector fixed no iOS PWA */
 .ios-pwa #historyContent {
-    margin-top: var(--date-sel-h, 54px);
+    margin-top: 0;
 }
 
 .date-selector h2 {
