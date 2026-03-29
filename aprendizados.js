@@ -177,6 +177,8 @@ const Aprendizados = (() => {
             const lTs = map[n.id].updatedAt ? new Date(map[n.id].updatedAt).getTime() : 0;
             const rTs = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
             if (rTs > lTs) map[n.id] = n;
+            // Empate: tombstone tem prioridade para evitar ressurreição
+            else if (rTs === lTs && n.deleted && !map[n.id].deleted) map[n.id] = n;
         }
         return { notes: Object.values(map).sort((a,b) => (b.updatedAt||'').localeCompare(a.updatedAt||'')) };
     }
@@ -210,7 +212,9 @@ const Aprendizados = (() => {
     // ─── Acesso a notas ───────────────────────────────────────────────
     function getItemNotes(category, itemId) {
         const all = loadAll();
-        return normalizeToNotes(all[category]?.[itemId]);
+        // Filtrar tombstones (deleted:true) — existem no storage para propagação
+        // do merge entre dispositivos, mas nunca devem ser exibidos.
+        return normalizeToNotes(all[category]?.[itemId]).filter(n => !n.deleted);
     }
 
     function getNote(category, itemId, noteId) {
@@ -237,7 +241,15 @@ const Aprendizados = (() => {
     function deleteNote(category, itemId, noteId) {
         const all = loadAll();
         if (!all[category]?.[itemId]) return;
-        all[category][itemId].notes = normalizeToNotes(all[category][itemId]).filter(n => n.id !== noteId);
+        // Tombstone: marca como deletada em vez de remover do array.
+        // Isso garante que a exclusão se propague via merge para outros dispositivos.
+        // O campo deleted:true + deletedAt são usados pelo merge para resolver conflitos.
+        const notes = normalizeToNotes(all[category][itemId]);
+        const idx = notes.findIndex(n => n.id === noteId);
+        if (idx >= 0) {
+            notes[idx] = { ...notes[idx], deleted: true, deletedAt: nowISO(), updatedAt: nowISO() };
+            all[category][itemId] = { notes };
+        }
         saveAllSync(all);
         _updateAprendBtnInDOM(category, itemId, all);
         _refreshDropdownIfOpen(category, itemId);
@@ -323,7 +335,8 @@ const Aprendizados = (() => {
     }
     function countCategoryNotes(category) {
         const all = loadAll();
-        return (APP_DATA[category] || []).reduce((acc, item) => acc + normalizeToNotes(all[category]?.[item.id]).length, 0);
+        return (APP_DATA[category] || []).reduce((acc, item) =>
+            acc + normalizeToNotes(all[category]?.[item.id]).filter(n => !n.deleted).length, 0);
     }
     function getPreview(content) {
         if (!content) return '';
@@ -507,7 +520,7 @@ const Aprendizados = (() => {
         let total = 0;
         ['clientes', 'categorias', 'atividades'].forEach(cat => {
             (APP_DATA[cat] || []).forEach(item => {
-                total += normalizeToNotes(all[cat]?.[item.id]).length;
+                total += normalizeToNotes(all[cat]?.[item.id]).filter(n => !n.deleted).length;
             });
         });
         return total;
@@ -528,7 +541,7 @@ const Aprendizados = (() => {
 
         ['clientes', 'categorias', 'atividades'].forEach(cat => {
             (APP_DATA[cat] || []).forEach(item => {
-                normalizeToNotes(all[cat]?.[item.id]).forEach(note => {
+                normalizeToNotes(all[cat]?.[item.id]).filter(n => !n.deleted).forEach(note => {
                     hits.push({ note, cat, itemId: item.id, itemName: item.name });
                 });
             });
@@ -1202,7 +1215,7 @@ const Aprendizados = (() => {
         // ── Seção 2: Notas que batem com a busca ───────────────────────
         Object.keys(getCategoryLabels()).forEach(cat => {
             (APP_DATA[cat] || []).forEach(item => {
-                normalizeToNotes(all[cat]?.[item.id]).forEach(note => {
+                normalizeToNotes(all[cat]?.[item.id]).filter(n => !n.deleted).forEach(note => {
                     const inTitle   = (note.title || '').toLowerCase().includes(termLow);
                     const inContent = (note.content || '').toLowerCase().includes(termLow);
                     if (!inTitle && !inContent) return;

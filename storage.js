@@ -904,7 +904,10 @@ const StorageManager = {
         }
     },
 
-    // Merge de dois objetos de aprendizados: categoria → itemId → notas por updatedAt
+    // Merge de dois objetos de aprendizados: categoria → itemId → notas por updatedAt.
+    // Tombstones (deleted:true) são preservados: a versão com updatedAt mais recente vence,
+    // seja ela a exclusão ou uma edição. Isso garante que deletar em um dispositivo
+    // propaga a exclusão para todos os outros via sync.
     _mergeAprendizados(local, remote) {
         const result = JSON.parse(JSON.stringify(local));
         for (const cat of Object.keys(remote)) {
@@ -913,16 +916,19 @@ const StorageManager = {
                 const rItem = remote[cat][itemId];
                 const lItem = result[cat][itemId];
                 if (!lItem) { result[cat][itemId] = rItem; continue; }
-                // Normalizar os dois lados para array de notas
+                // Normalizar os dois lados para array de notas (incluindo tombstones)
                 const lNotes = this._normalizeToNotesArr(lItem);
                 const rNotes = this._normalizeToNotesArr(rItem);
                 const map = {};
                 for (const n of lNotes) map[n.id] = n;
                 for (const n of rNotes) {
                     if (!map[n.id]) { map[n.id] = n; continue; }
+                    // Comparar updatedAt: o mais recente vence (seja edição ou tombstone)
                     const lTs = map[n.id].updatedAt ? new Date(map[n.id].updatedAt).getTime() : 0;
                     const rTs = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
                     if (rTs > lTs) map[n.id] = n;
+                    // Se igual: tombstone tem prioridade (evita ressurreição acidental)
+                    else if (rTs === lTs && n.deleted && !map[n.id].deleted) map[n.id] = n;
                 }
                 result[cat][itemId] = {
                     notes: Object.values(map).sort((a, b) =>
