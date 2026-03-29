@@ -2483,7 +2483,7 @@ class HabitTrackerApp {
         const nextDayBtn = document.createElement('button');
         nextDayBtn.className = 'weekbar-tooltip-next-day';
         nextDayBtn.title = 'Passar para próximo dia';
-        nextDayBtn.textContent = '⏭ Passar para amanhã';
+        nextDayBtn.textContent = '⏭';
         nextDayBtn.addEventListener('click', async (ev) => {
             ev.stopPropagation();
 
