@@ -1305,6 +1305,7 @@ class HabitTrackerApp {
         dropdown.dataset.itemId = itemId;
         dropdown.dataset.category = category;
         dropdown._noteEditable = noteEditable; // referência para refresh
+        dropdown._anchorBtn = btn;             // referência para reposicionar no refresh
 
         // Preencher conteúdo
         await this._fillAprendDropdown(dropdown, category, itemId, noteEditable);
@@ -1373,7 +1374,8 @@ class HabitTrackerApp {
         let notes = [];
         if (rawItem) {
             if (Array.isArray(rawItem.notes) && rawItem.notes.length > 0) {
-                notes = rawItem.notes;
+                // Filtrar tombstones (deleted: true) — igual ao que Aprendizados.getItemNotes() faz
+                notes = rawItem.notes.filter(n => !n.deleted);
             } else if (typeof rawItem.content !== 'undefined') {
                 notes = [{
                     id: '__legacy__',
@@ -1460,13 +1462,18 @@ class HabitTrackerApp {
                         ev.preventDefault();
                         ev.stopPropagation();
 
-                        const currentText = noteEditable.innerText.trim();
-                        noteEditable.innerText = currentText
-                            ? (currentText.includes(lineText) ? currentText : currentText + '\n' + lineText)
-                            : lineText;
+                        // noteEditable pode ser null quando o dropdown foi aberto
+                        // num contexto sem campo de nota visível (ex: refresh remoto)
+                        if (noteEditable) {
+                            const currentText = noteEditable.innerText.trim();
+                            noteEditable.innerText = currentText
+                                ? (currentText.includes(lineText) ? currentText : currentText + '\n' + lineText)
+                                : lineText;
+                        }
 
+                        const noteText = noteEditable ? noteEditable.innerText.trim() : lineText;
                         const existingData = await StorageManager.getItemStatus(dateStr, category, itemId);
-                        await StorageManager.saveItemStatus(dateStr, category, itemId, existingData.status || 'none', noteEditable.innerText.trim());
+                        await StorageManager.saveItemStatus(dateStr, category, itemId, existingData.status || 'none', noteText);
 
                         if (typeof Aprendizados !== 'undefined' && Aprendizados.setLineChecked) {
                             Aprendizados.setLineChecked(category, itemId, realIdx, true, note.id);
@@ -1502,14 +1509,23 @@ class HabitTrackerApp {
     }
 
     // API pública: chamada por aprendizados.js após salvar/deletar nota
-    async refreshItemAprendDropdown(category, itemId) {
-        const dropdown = document.querySelector(`.item-aprend-dropdown[data-item-id="${itemId}"][data-category="${category}"]`);
-        if (!dropdown) return;
-        const noteEditable = dropdown._noteEditable;
-        const btn = document.querySelector(`[data-category="${category}"][data-item-id="${itemId}"] .btn-aprend-item`);
-        await this._fillAprendDropdown(dropdown, category, itemId, noteEditable);
-        // Reposicionar caso o tamanho mudou
-        if (btn) requestAnimationFrame(() => this._positionAprendDropdown(dropdown, btn));
+    // Usa debounce para evitar re-renders em cascata durante digitação rápida
+    refreshItemAprendDropdown(category, itemId) {
+        if (!this._aprendRefreshTimers) this._aprendRefreshTimers = {};
+        const key = `${category}__${itemId}`;
+        clearTimeout(this._aprendRefreshTimers[key]);
+        this._aprendRefreshTimers[key] = setTimeout(async () => {
+            const dropdown = document.querySelector(`.item-aprend-dropdown[data-item-id="${itemId}"][data-category="${category}"]`);
+            if (!dropdown) return;
+            const noteEditable = dropdown._noteEditable || null;
+            const btn = dropdown._anchorBtn
+                     || document.querySelector(`.btn-aprend-item[data-item-id="${itemId}"][data-category="${category}"]`)
+                     || document.querySelector(`[data-category="${category}"][data-item-id="${itemId}"] .btn-aprend-item`);
+            await this._fillAprendDropdown(dropdown, category, itemId, noteEditable);
+            requestAnimationFrame(() => {
+                if (btn) this._positionAprendDropdown(dropdown, btn);
+            });
+        }, 80);
     }
 
     async showView(view, opts = {}) {
@@ -4772,7 +4788,7 @@ class HabitTrackerApp {
         endDate.setHours(23, 59, 59, 999);
         let startDate = new Date();
         switch (period) {
-            case 'week':  startDate.setDate(startDate.getDate() - 7); break;
+            case 'week':  startDate = this.getWeekMonday(new Date()); break;
             case 'month': startDate.setMonth(startDate.getMonth() - 1); break;
             case 'year':  startDate.setFullYear(startDate.getFullYear() - 1); break;
             case 'all':   startDate = new Date(2020, 0, 1); break;
@@ -4847,6 +4863,7 @@ class HabitTrackerApp {
             this._setupSquareTooltips();
             this._setupDemandSectionToggle(); // restores open sections → changes page height
             this._renderAllSparklines();
+            this._renderAllCategoryMiniCharts();
             // Wait for layout to settle after sections are restored, then scroll
             if (scrollToRestore > 0) {
                 requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -4975,13 +4992,20 @@ class HabitTrackerApp {
                 return s === 'concluido' || s === 'concluido-ongoing';
             }).length;
 
+            // Pre-compute mini-chart data for this category (per day/week/month)
+            const miniData = this._buildCategoryMiniChartData(ci.key, items, rangeData, startDate, endDate, period);
+            const miniJson = encodeURIComponent(JSON.stringify(miniData));
+
             html += `<div class="demand-section-header" data-sec="${ci.key}">
                 <span class="section-icon">${ci.icon}</span>
                 <span class="section-title">${ci.label}</span>
                 <span class="section-stats">${catCompleted}/${items.length} hoje</span>
                 <span class="section-chevron">▼</span>
             </div>
-            <div class="demand-section-body" data-sec-body="${ci.key}">`;
+            <div class="demand-section-body" data-sec-body="${ci.key}">
+                <div class="demand-mini-chart-wrap" style="grid-column: 1 / -1;">
+                    <canvas class="demand-mini-chart" data-minidata="${miniJson}" data-total="${items.length}"></canvas>
+                </div>`;
 
             for (const item of items) {
                 const rawToday = todayDayData[ci.key]?.[item.id];
@@ -5193,7 +5217,7 @@ class HabitTrackerApp {
                 this._reportsSectionStates[key] = !isOpen;
                 if (body) {
                     body.classList.toggle('open', !isOpen);
-                    if (!isOpen) setTimeout(() => this._renderAllSparklines(), 30);
+                    if (!isOpen) setTimeout(() => { this._renderAllSparklines(); this._renderAllCategoryMiniCharts(); }, 30);
                 }
             });
         });
@@ -5273,6 +5297,163 @@ class HabitTrackerApp {
     }
 
     /** Triggers sparkline drawing on all visible canvases */
+    /** Builds chart data (labels + status counts) for a category over the given period/range */
+    _buildCategoryMiniChartData(catKey, items, rangeData, startDate, endDate, period) {
+        const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+        const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const labels = [];
+        const concluido = [], emAndamento = [], aguardando = [], naoFeito = [];
+
+        const countDay = (dateStr) => {
+            const c = { concluido: 0, emAndamento: 0, aguardando: 0, naoFeito: 0 };
+            for (const item of items) {
+                const raw = rangeData[dateStr]?.[catKey]?.[item.id];
+                if (!raw) continue;
+                const s = typeof raw === 'string' ? raw : (raw.status || 'none');
+                if (s === 'concluido' || s === 'concluido-ongoing' || s === 'parcialmente') c.concluido++;
+                else if (s === 'em-andamento') c.emAndamento++;
+                else if (s === 'aguardando') c.aguardando++;
+                else if (s === 'nao-feito' || s === 'bloqueado') c.naoFeito++;
+            }
+            return c;
+        };
+
+        const pushCounts = (c) => {
+            concluido.push(c.concluido);
+            emAndamento.push(c.emAndamento);
+            aguardando.push(c.aguardando);
+            naoFeito.push(c.naoFeito);
+        };
+
+        if (period === 'week') {
+            const monday = this.getWeekMonday(new Date());
+            const today = new Date(); today.setHours(23, 59, 59, 999);
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + i);
+                labels.push(dayNames[d.getDay()]);
+                if (d > today) { concluido.push(0); emAndamento.push(0); aguardando.push(0); naoFeito.push(0); }
+                else pushCounts(countDay(this.getDateString(d)));
+            }
+        } else if (period === 'month') {
+            // Daily from start of current month to today
+            const today = new Date(); today.setHours(23, 59, 59, 999);
+            for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+                labels.push(d.getDate() + '/' + (d.getMonth() + 1));
+                pushCounts(countDay(this.getDateString(new Date(d))));
+            }
+        } else {
+            // year/all: aggregate by month
+            const monthsMap = new Map();
+            for (const dateStr in rangeData) {
+                const d = new Date(dateStr);
+                if (d < startDate || d > endDate) continue;
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                if (!monthsMap.has(key)) monthsMap.set(key, { year: d.getFullYear(), month: d.getMonth() });
+            }
+            const sorted = Array.from(monthsMap.values()).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+            for (const { year, month } of sorted) {
+                labels.push(monthNames[month]);
+                const c = { concluido: 0, emAndamento: 0, aguardando: 0, naoFeito: 0 };
+                for (const dateStr in rangeData) {
+                    const d = new Date(dateStr);
+                    if (d.getFullYear() !== year || d.getMonth() !== month) continue;
+                    const dc = countDay(dateStr);
+                    c.concluido += dc.concluido; c.emAndamento += dc.emAndamento;
+                    c.aguardando += dc.aguardando; c.naoFeito += dc.naoFeito;
+                }
+                pushCounts(c);
+            }
+        }
+        return { labels, concluido, emAndamento, aguardando, naoFeito };
+    }
+
+    /** Renders a mini bar chart on a .demand-mini-chart canvas */
+    _renderCategoryMiniChart(canvas) {
+        if (typeof Chart === 'undefined') return;
+        try {
+            const raw = canvas.dataset.minidata;
+            if (!raw) return;
+            const { labels, concluido, emAndamento, aguardando, naoFeito } = JSON.parse(decodeURIComponent(raw));
+            const totalItems = parseInt(canvas.dataset.total || '0', 10);
+            if (!labels || !labels.length) return;
+
+            // Destroy previous chart instance if exists
+            const existing = Chart.getChart(canvas);
+            if (existing) existing.destroy();
+
+            new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Concluído',    data: concluido,    backgroundColor: '#22c55e', borderRadius: 4 },
+                        { label: 'Andamento',    data: emAndamento,  backgroundColor: '#eab308', borderRadius: 4 },
+                        { label: 'Aguardando',   data: aguardando,   backgroundColor: '#95d3ee', borderRadius: 4 },
+                        { label: 'Não Feito',    data: naoFeito,     backgroundColor: '#ef4444', borderRadius: 4 },
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 400, easing: 'easeInOutQuart' },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                font: { family: 'Quicksand', size: 10 },
+                                color: 'rgba(255,255,255,0.55)',
+                                padding: 8,
+                                boxWidth: 8,
+                                boxHeight: 8,
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(4,34,53,0.95)',
+                            titleColor: '#95d3ee',
+                            bodyColor: '#fff',
+                            borderColor: 'rgba(149,211,238,0.3)',
+                            borderWidth: 1,
+                            padding: 8,
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: false,
+                            grid: { color: 'rgba(149,211,238,0.05)', drawBorder: false },
+                            ticks: { color: 'rgba(255,255,255,0.45)', font: { family: 'Quicksand', size: 10 }, maxRotation: 0 }
+                        },
+                        y: {
+                            stacked: false,
+                            beginAtZero: true,
+                            max: totalItems || undefined,
+                            grid: { color: 'rgba(149,211,238,0.05)', drawBorder: false },
+                            ticks: {
+                                color: 'rgba(255,255,255,0.45)',
+                                font: { family: 'Quicksand', size: 10 },
+                                stepSize: Math.max(1, Math.ceil((totalItems || 4) / 4)),
+                                callback: v => Number.isInteger(v) ? v : ''
+                            }
+                        }
+                    },
+                    barPercentage: 0.7,
+                    categoryPercentage: 0.65
+                }
+            });
+        } catch (e) { console.warn('mini-chart error', e); }
+    }
+
+    /** Renders all visible category mini-charts */
+    _renderAllCategoryMiniCharts() {
+        document.querySelectorAll('.demand-section-body.open .demand-mini-chart').forEach(canvas => {
+            this._renderCategoryMiniChart(canvas);
+        });
+    }
+
     _renderAllSparklines() {
         document.querySelectorAll('.demand-sparkline').forEach(canvas => {
             try {
@@ -5367,6 +5548,9 @@ class HabitTrackerApp {
 
         const { labels, datasets } = await this.getChartData(period, startDate, endDate);
 
+        // Total de demandas ativas no app (atualiza dinamicamente conforme configurações)
+        const totalDemandas = APP_DATA.clientes.length + APP_DATA.categorias.length + APP_DATA.atividades.length;
+
         const ctx = canvas.getContext('2d');
         this.performanceChart = new Chart(ctx, {
             type: 'bar',
@@ -5457,6 +5641,7 @@ class HabitTrackerApp {
                     y: {
                         stacked: false,
                         beginAtZero: true,
+                        max: totalDemandas,
                         grid: {
                             color: 'rgba(149, 211, 238, 0.07)',
                             drawBorder: false
@@ -5467,7 +5652,7 @@ class HabitTrackerApp {
                                 family: 'Quicksand',
                                 size: 11
                             },
-                            stepSize: 1,
+                            stepSize: Math.ceil(totalDemandas / 8),
                             callback: function(value) {
                                 return Number.isInteger(value) ? value : '';
                             }
@@ -5627,19 +5812,30 @@ class HabitTrackerApp {
         };
 
         if (period === 'week') {
-            // Last 7 days with weekday abbreviations
+            // All 7 days of current week (Mon→Sun), future days show zero
             const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-            for (let i = 6; i >= 0; i--) {
-                const date = new Date();
-                date.setDate(date.getDate() - i);
+            const monday = this.getWeekMonday(new Date());
+            const today = new Date();
+            today.setHours(23, 59, 59, 999);
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(monday);
+                date.setDate(monday.getDate() + i);
                 labels.push(dayNames[date.getDay()]);
-                
-                const dayData = await this.calculateDayStatusPercentages(date);
-                datasets.concluido.push(dayData.concluido);
-                datasets.emAndamento.push(dayData.emAndamento);
-                datasets.aguardando.push(dayData.aguardando);
-                datasets.naoFeito.push(dayData.naoFeito);
-                datasets.pulado.push(dayData.pulado);
+                if (date > today) {
+                    // Future day — push zeros
+                    datasets.concluido.push(0);
+                    datasets.emAndamento.push(0);
+                    datasets.aguardando.push(0);
+                    datasets.naoFeito.push(0);
+                    datasets.pulado.push(0);
+                } else {
+                    const dayData = await this.calculateDayStatusPercentages(date);
+                    datasets.concluido.push(dayData.concluido);
+                    datasets.emAndamento.push(dayData.emAndamento);
+                    datasets.aguardando.push(dayData.aguardando);
+                    datasets.naoFeito.push(dayData.naoFeito);
+                    datasets.pulado.push(dayData.pulado);
+                }
             }
         } else if (period === 'month') {
             // 4 weeks
@@ -5814,13 +6010,23 @@ class HabitTrackerApp {
         };
 
         if (period === 'week') {
-            for (let i = 6; i >= 0; i--) {
-                const date = new Date();
-                date.setDate(date.getDate() - i);
-                const data = await this.calculateGroupPercentages(date, date);
-                groupData.clientes.push(data.clientes);
-                groupData.categorias.push(data.categorias);
-                groupData.atividades.push(data.atividades);
+            const monday = this.getWeekMonday(new Date());
+            const today = new Date();
+            today.setHours(23, 59, 59, 999);
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(monday);
+                date.setDate(monday.getDate() + i);
+                if (date > today) {
+                    // Future day — push zeros
+                    groupData.clientes.push(0);
+                    groupData.categorias.push(0);
+                    groupData.atividades.push(0);
+                } else {
+                    const data = await this.calculateGroupPercentages(date, date);
+                    groupData.clientes.push(data.clientes);
+                    groupData.categorias.push(data.categorias);
+                    groupData.atividades.push(data.atividades);
+                }
             }
         } else if (period === 'month') {
             for (let week = 1; week <= 4; week++) {

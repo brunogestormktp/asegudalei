@@ -6521,3 +6521,19 @@ tbody .hs-tr:first-child .hs-td {
     color: rgba(149,211,238,0.45);
     font-size: 14px;
 }
+
+/* ── Mini-gráfico por categoria (Relatório por Demanda) ── */
+.demand-mini-chart-wrap {
+    padding: 10px 4px 4px;
+    margin-bottom: 6px;
+    background: rgba(149, 211, 238, 0.03);
+    border: 1px solid rgba(149, 211, 238, 0.08);
+    border-radius: 11px;
+    height: 140px;
+    position: relative;
+}
+
+.demand-mini-chart {
+    width: 100% !important;
+    height: 100% !important;
+}

@@ -261,7 +261,7 @@ const Aprendizados = (() => {
             if (typeof window.app !== 'undefined' && typeof window.app.refreshItemAprendDropdown === 'function') {
                 window.app.refreshItemAprendDropdown(category, itemId);
             }
-        } catch {}
+        } catch(e) { console.warn('[Aprendizados] refreshDropdown error:', e); }
     }
 
     // Atualiza a classe has-notes no botão 📚 do item no clientesList/DOM
