@@ -277,9 +277,18 @@ const StorageManager = {
     async getDateRangeData(startDate, endDate) {
         const allData = await this.getData();
         const result = {};
+        // Compara strings no formato YYYY-MM-DD para evitar bug de timezone UTC
+        // (new Date("2026-03-31") retorna UTC midnight, que no Brasil (UTC-3) vira 30/03 21:00 local)
+        const toStr = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
+        const startStr = toStr(startDate);
+        const endStr = toStr(endDate);
         for (const dateStr in allData) {
-            const date = new Date(dateStr);
-            if (date >= startDate && date <= endDate) {
+            if (dateStr >= startStr && dateStr <= endStr) {
                 result[dateStr] = allData[dateStr];
             }
         }

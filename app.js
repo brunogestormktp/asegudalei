@@ -5049,61 +5049,114 @@ class HabitTrackerApp {
     _getItemStatsFromRangeData(itemId, category, rangeData, startDate, endDate, period) {
         const stats = { concluido: 0, andamento: 0, aguardando: 0, bloqueado: 0, naoFeito: 0, total: 0, history: [] };
         const scoreMap = { 'concluido': 1, 'concluido-ongoing': 1, 'parcialmente': 0.7, 'em-andamento': 0.5, 'aguardando': 0.3, 'bloqueado': 0, 'nao-feito': 0, 'prioridade': 0 };
-        const dayMs = 86400000;
-        const totalDays = Math.round((endDate - startDate) / dayMs) + 1;
-        const useWeekly = totalDays > 60;
 
-        if (useWeekly) {
-            // Aggregate by week for year/all mode
-            let ws = new Date(startDate);
-            while (ws <= endDate) {
-                const we = new Date(ws);
-                we.setDate(we.getDate() + 6);
-                let sum = 0, cnt = 0;
-                for (let d = new Date(ws); d <= we && d <= endDate; d.setDate(d.getDate() + 1)) {
+        if (period === 'week') {
+            // Mesma lógica do performanceChart: 7 dias fixos Seg→Dom da semana atual
+            // Dias futuros = null no sparkline, não contam no total
+            // O denominador da % são TODOS os dias passados da semana (com ou sem registro)
+            const monday = this.getWeekMonday(new Date());
+            const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+            let diasPassados = 0; // denominador real: dias passados da semana
+
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + i);
+                if (d > todayEnd) {
+                    // Dia futuro — não conta
+                    stats.history.push(null);
+                    continue;
+                }
+                diasPassados++;
+                const ds = this.getDateString(d);
+                const itemData = rangeData[ds]?.[category]?.[itemId];
+                const s = itemData
+                    ? (typeof itemData === 'string' ? itemData : (itemData.status || 'none'))
+                    : 'none';
+
+                // Sparkline: score do dia (null se sem registro)
+                const sc = scoreMap[s];
+                stats.history.push(sc !== undefined ? sc : null);
+
+                // Contagens (pular não entra no total, mas dias sem registro contam como denominador)
+                if (s === 'pular') continue;
+                if (s === 'none') continue; // sem registro: entra no denominador mas não em nenhum bucket
+                stats.total++; // dias COM registro (exceto pular)
+                if (s === 'concluido' || s === 'concluido-ongoing') stats.concluido++;
+                else if (s === 'em-andamento' || s === 'parcialmente') stats.andamento++;
+                else if (s === 'aguardando') stats.aguardando++;
+                else if (s === 'bloqueado') stats.bloqueado++;
+                else if (s === 'nao-feito') stats.naoFeito++;
+            }
+            // Usa dias passados da semana como denominador da %
+            // Assim 1 concluído em 3 dias passados = 33%, não 100%
+            stats._weekDaysElapsed = diasPassados;
+        } else {
+            // Mês/Ano/Geral: lógica existente por rangeData
+            const dayMs = 86400000;
+            const totalDays = Math.round((endDate - startDate) / dayMs) + 1;
+            const useWeekly = totalDays > 60;
+
+            if (useWeekly) {
+                // Agrega por semana para modo ano/geral
+                let ws = new Date(startDate);
+                while (ws <= endDate) {
+                    const we = new Date(ws);
+                    we.setDate(we.getDate() + 6);
+                    let sum = 0, cnt = 0;
+                    for (let d = new Date(ws); d <= we && d <= endDate; d.setDate(d.getDate() + 1)) {
+                        const ds = this.getDateString(d);
+                        const itemData = rangeData[ds]?.[category]?.[itemId];
+                        if (itemData) {
+                            const s = typeof itemData === 'string' ? itemData : (itemData.status || 'none');
+                            const sc = scoreMap[s];
+                            if (sc !== undefined) { sum += sc; cnt++; }
+                        }
+                    }
+                    stats.history.push(cnt > 0 ? sum / cnt : null);
+                    ws.setDate(ws.getDate() + 7);
+                }
+            } else {
+                // Sparkline diário para mês
+                for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
                     const ds = this.getDateString(d);
                     const itemData = rangeData[ds]?.[category]?.[itemId];
                     if (itemData) {
                         const s = typeof itemData === 'string' ? itemData : (itemData.status || 'none');
                         const sc = scoreMap[s];
-                        if (sc !== undefined) { sum += sc; cnt++; }
+                        stats.history.push(sc !== undefined ? sc : null);
+                    } else {
+                        stats.history.push(null);
                     }
                 }
-                stats.history.push(cnt > 0 ? sum / cnt : null);
-                ws.setDate(ws.getDate() + 7);
             }
-        } else {
-            // Daily sparkline
-            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-                const ds = this.getDateString(d);
-                const itemData = rangeData[ds]?.[category]?.[itemId];
-                if (itemData) {
-                    const s = typeof itemData === 'string' ? itemData : (itemData.status || 'none');
-                    const sc = scoreMap[s];
-                    stats.history.push(sc !== undefined ? sc : null);
-                } else {
-                    stats.history.push(null);
-                }
+
+            // Contagem de totais por rangeData (mês/ano/geral)
+            const toDateStr = (d) => {
+                const y = d.getFullYear();
+                const mo = String(d.getMonth() + 1).padStart(2, '0');
+                const da = String(d.getDate()).padStart(2, '0');
+                return `${y}-${mo}-${da}`;
+            };
+            const startStr = toDateStr(startDate);
+            const endStr   = toDateStr(endDate);
+            for (const dateStr in rangeData) {
+                if (dateStr < startStr || dateStr > endStr) continue;
+                const itemData = rangeData[dateStr]?.[category]?.[itemId];
+                if (!itemData) continue;
+                const s = typeof itemData === 'string' ? itemData : (itemData.status || 'none');
+                if (s === 'none' || s === 'pular') continue;
+                stats.total++;
+                if (s === 'concluido' || s === 'concluido-ongoing') stats.concluido++;
+                else if (s === 'em-andamento' || s === 'parcialmente') stats.andamento++;
+                else if (s === 'aguardando') stats.aguardando++;
+                else if (s === 'bloqueado') stats.bloqueado++;
+                else if (s === 'nao-feito') stats.naoFeito++;
             }
         }
 
-        // Count totals
-        for (const dateStr in rangeData) {
-            const date = new Date(dateStr);
-            if (date < startDate || date > endDate) continue;
-            const itemData = rangeData[dateStr]?.[category]?.[itemId];
-            if (!itemData) continue;
-            const s = typeof itemData === 'string' ? itemData : (itemData.status || 'none');
-            if (s === 'none' || s === 'pular') continue;
-            stats.total++;
-            if (s === 'concluido' || s === 'concluido-ongoing') stats.concluido++;
-            else if (s === 'em-andamento' || s === 'parcialmente') stats.andamento++;
-            else if (s === 'aguardando') stats.aguardando++;
-            else if (s === 'bloqueado') stats.bloqueado++;
-            else if (s === 'nao-feito') stats.naoFeito++;
-        }
-
-        stats.rate = stats.total > 0 ? Math.round(stats.concluido / stats.total * 100) : 0;
+        // Para week: denominador = dias passados da semana (não apenas dias com registro)
+        const rateDenominator = stats._weekDaysElapsed ?? stats.total;
+        stats.rate = rateDenominator > 0 ? Math.round(stats.concluido / rateDenominator * 100) : 0;
         return stats;
     }
 
@@ -5230,11 +5283,11 @@ class HabitTrackerApp {
                 const period = this._squaresPeriod || 'week';
                 const today = new Date();
                 if (period === 'week') {
-                    // Show full 7-day range for this item
-                    const weekStart = new Date(today);
-                    weekStart.setDate(today.getDate() - 6);
+                    // Semana atual: segunda → domingo (igual ao performanceChart)
+                    const weekStart = this.getWeekMonday(new Date());
                     weekStart.setHours(0, 0, 0, 0);
-                    const weekEnd = new Date(today);
+                    const weekEnd = new Date(weekStart);
+                    weekEnd.setDate(weekStart.getDate() + 6);
                     weekEnd.setHours(23, 59, 59, 999);
                     const fmt = d => `${d.getDate()}/${d.getMonth() + 1}`;
                     const rangeLabel = `${itemName} · ${fmt(weekStart)}–${fmt(weekEnd)}`;
