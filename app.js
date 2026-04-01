@@ -5601,8 +5601,28 @@ class HabitTrackerApp {
 
         const { labels, datasets } = await this.getChartData(period, startDate, endDate);
 
-        // Total de demandas ativas no app (atualiza dinamicamente conforme configurações)
+        // Para semana: limite fixo = total de demandas ativas (um dia não pode ter mais do que isso)
+        // Para mês/ano/all: limite dinâmico = maior valor acumulado encontrado nos dados (pode ser múltiplos dias somados)
         const totalDemandas = APP_DATA.clientes.length + APP_DATA.categorias.length + APP_DATA.atividades.length;
+
+        let yMax;
+        if (period === 'week') {
+            yMax = totalDemandas;
+        } else {
+            // Calcula o valor máximo real dos dados para expandir o eixo Y dinamicamente
+            const allValues = [
+                ...datasets.concluido,
+                ...datasets.emAndamento,
+                ...datasets.aguardando,
+                ...datasets.naoFeito,
+                ...datasets.pulado
+            ];
+            const dataMax = Math.max(...allValues, 1);
+            // Adiciona 10% de margem superior para melhor visualização
+            yMax = Math.ceil(dataMax * 1.10);
+        }
+
+        const yStepSize = Math.ceil(yMax / 8);
 
         const ctx = canvas.getContext('2d');
         this.performanceChart = new Chart(ctx, {
@@ -5694,7 +5714,7 @@ class HabitTrackerApp {
                     y: {
                         stacked: false,
                         beginAtZero: true,
-                        max: totalDemandas,
+                        max: yMax,
                         grid: {
                             color: 'rgba(149, 211, 238, 0.07)',
                             drawBorder: false
@@ -5705,7 +5725,7 @@ class HabitTrackerApp {
                                 family: 'Quicksand',
                                 size: 11
                             },
-                            stepSize: Math.ceil(totalDemandas / 8),
+                            stepSize: yStepSize,
                             callback: function(value) {
                                 return Number.isInteger(value) ? value : '';
                             }
