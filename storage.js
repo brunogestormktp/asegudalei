@@ -4,6 +4,7 @@ const StorageManager = {
     BACKUP_KEY:  'habit-tracker-data-backup',   // backup automático
     syncInProgress: false,
     lastSyncTime: null,
+    syncReady: false,   // true após forceSyncFromSupabase completar (ou Supabase indisponível)
     _syncTimer: null,
 
     // ID único desta instância em memória — gerado a cada carregamento da página.
@@ -470,6 +471,7 @@ const StorageManager = {
         const userId = this.getUserId();
         if (!userId) {
             console.log('No user logged in');
+            this.syncReady = true;  // Sem usuário = sem sync = pode rodar rollover
             return false;
         }
 
@@ -561,6 +563,8 @@ const StorageManager = {
         } catch (error) {
             console.error('Error syncing from Supabase:', error);
             return false;
+        } finally {
+            this.syncReady = true;  // Sempre marca ready: sucesso, falha ou Supabase indisponível
         }
         return true;
     },

@@ -69,6 +69,8 @@ window.addEventListener('load', async function checkAuth() {
         if (typeof StorageManager !== 'undefined' && StorageManager.forceSyncFromSupabase) {
             console.log('Sincronizando dados do Supabase...');
             const synced = await StorageManager.forceSyncFromSupabase();
+            // Neste ponto: StorageManager.syncReady === true (garantido pelo finally)
+
             if (synced) {
                 // Re-renderizar o app com os dados atualizados do Supabase
                 if (typeof app !== 'undefined' && app.renderCurrentView) {
@@ -81,9 +83,18 @@ window.addEventListener('load', async function checkAuth() {
                 }
             }
 
+            // Rollover SEMPRE após sync (sucesso ou falha) — syncReady já é true
+            if (typeof app !== 'undefined' && app._checkMissedRollover) {
+                await app._checkMissedRollover();
+            } else {
+                window._pendingRollover = true;  // app ainda não existe, init() vai pegar
+            }
+
             // Iniciar Realtime após sync inicial — sincronização instantânea entre dispositivos
             StorageManager.startRealtime(currentUser.id);
             StorageManager.startPolling(currentUser.id);
+        } else if (typeof StorageManager !== 'undefined') {
+            StorageManager.syncReady = true;  // Sem Supabase configurado = desbloquear rollover
         }
 
         // Registrar botão de logout AQUI, depois que supabaseClient está pronto
@@ -169,6 +180,10 @@ window.addEventListener('load', async function checkAuth() {
                         // Aplicar configurações do Supabase antes do render
                         if (app.applySettings) app.applySettings();
                         app.renderCurrentView();
+                    }
+                    // Rollover após re-login — syncReady já é true
+                    if (typeof app !== 'undefined' && app._checkMissedRollover) {
+                        await app._checkMissedRollover();
                     }
                     StorageManager.startPolling(newUserId);
                 }
