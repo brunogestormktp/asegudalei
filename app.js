@@ -58,8 +58,10 @@ class HabitTrackerApp {
             window._pendingRerender = false;
             this.renderCurrentView();
         }
-        // Verifica se houve virada de dia perdida e agenda rollover da meia-noite
-        this._checkMissedRollover();
+        if (window._pendingRollover) {
+            window._pendingRollover = false;
+            this._checkMissedRollover();
+        }
         this._scheduleMidnightRollover();
         // Garantir flush para Supabase quando o usuário sai ou minimiza a aba
         this._setupUnloadFlush();
@@ -99,6 +101,10 @@ class HabitTrackerApp {
     // Ao virar 00:00, marca como "não feito" todos os itens que ficaram
     // com status "nenhum" no dia que acabou de passar.
     async _markPendingAsNotDone(dateStr) {
+        if (!StorageManager.syncReady) {
+            console.warn('⛔ Rollover bloqueado: syncReady=false');
+            return;
+        }
         const categories = [
             { key: 'clientes',   items: APP_DATA.clientes   },
             { key: 'categorias', items: APP_DATA.categorias },

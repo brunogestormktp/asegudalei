@@ -70,20 +70,25 @@ window.addEventListener('load', async function checkAuth() {
             console.log('Sincronizando dados do Supabase...');
             const synced = await StorageManager.forceSyncFromSupabase();
             if (synced) {
-                // Re-renderizar o app com os dados atualizados do Supabase
                 if (typeof app !== 'undefined' && app.renderCurrentView) {
-                    // Aplicar configurações do Supabase antes do primeiro render
                     if (app.applySettings) app.applySettings();
                     app.renderCurrentView();
                 } else {
-                    // app ainda não foi inicializado, agendar re-render após carregamento
                     window._pendingRerender = true;
                 }
             }
 
-            // Iniciar Realtime após sync inicial — sincronização instantânea entre dispositivos
+            // Rollover após sync — syncReady já é true
+            if (typeof app !== 'undefined' && app._checkMissedRollover) {
+                await app._checkMissedRollover();
+            } else {
+                window._pendingRollover = true;
+            }
+
             StorageManager.startRealtime(currentUser.id);
             StorageManager.startPolling(currentUser.id);
+        } else if (typeof StorageManager !== 'undefined') {
+            StorageManager.syncReady = true;
         }
 
         // Registrar botão de logout AQUI, depois que supabaseClient está pronto
@@ -166,9 +171,11 @@ window.addEventListener('load', async function checkAuth() {
                     console.log('Sincronizando dados do Supabase após login...');
                     const synced = await StorageManager.forceSyncFromSupabase();
                     if (synced && typeof app !== 'undefined' && app.renderCurrentView) {
-                        // Aplicar configurações do Supabase antes do render
                         if (app.applySettings) app.applySettings();
                         app.renderCurrentView();
+                    }
+                    if (typeof app !== 'undefined' && app._checkMissedRollover) {
+                        await app._checkMissedRollover();
                     }
                     StorageManager.startPolling(newUserId);
                 }
