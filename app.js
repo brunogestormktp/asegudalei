@@ -58,13 +58,8 @@ class HabitTrackerApp {
             window._pendingRerender = false;
             this.renderCurrentView();
         }
-        // Se havia um rollover pendente (sync do Supabase completou antes do app inicializar)
-        if (window._pendingRollover) {
-            window._pendingRollover = false;
-            this._checkMissedRollover();
-        }
-        // Agenda rollover da meia-noite (NÃO chama _checkMissedRollover aqui —
-        // rollover só é seguro após forceSyncFromSupabase, controlado por app-auth.js)
+        // Verifica se houve virada de dia perdida e agenda rollover da meia-noite
+        this._checkMissedRollover();
         this._scheduleMidnightRollover();
         // Garantir flush para Supabase quando o usuário sai ou minimiza a aba
         this._setupUnloadFlush();
@@ -104,11 +99,6 @@ class HabitTrackerApp {
     // Ao virar 00:00, marca como "não feito" todos os itens que ficaram
     // com status "nenhum" no dia que acabou de passar.
     async _markPendingAsNotDone(dateStr) {
-        // Proteção: jamais correr antes do sync do Supabase concluir
-        if (!StorageManager.syncReady) {
-            console.warn('⛔ Rollover bloqueado: syncReady=false. Abortando para proteger dados.');
-            return;
-        }
         const categories = [
             { key: 'clientes',   items: APP_DATA.clientes   },
             { key: 'categorias', items: APP_DATA.categorias },
@@ -3029,8 +3019,6 @@ class HabitTrackerApp {
         this.exitCurrentEditMode(true);
         // Fechar dropdown de aprendizados por item se aberto
         this._closeAllItemAprendDropdowns();
-        // Fechar popup de resumo semanal se aberto
-        this._closeWeekSummaryPopup();
         
         // Clean up old event listeners
         if (this._statusClickHandlers) {
@@ -3224,10 +3212,10 @@ class HabitTrackerApp {
                     <span class="item-name" tabindex="0">${this._escapeHtml(item.name)}</span>
                     <div style="display:flex;gap:0.5rem;align-items:center;">
                         <button class="btn-google-search" title="Pesquisar nota no Google" aria-label="Pesquisar no Google" style="display:${hasNoteInitially ? 'inline-flex' : 'none'};align-items:center;justify-content:center;padding:2px 4px;background:none;border:none;cursor:pointer;border-radius:4px;opacity:0.75;" tabindex="-1"><img src="https://www.google.com/favicon.ico" alt="Google" width="14" height="14" style="display:block;pointer-events:none;"></button>
-                        <button class="btn-week-summary" title="Resumo semanal" aria-label="Resumo semanal" data-category="${category}" data-item-id="${item.id}" data-item-name="${this._escapeHtmlAttr(item.name)}">📋</button>
                         <button class="btn-link-item${hasLinksInitially ? ' has-links' : ''}" title="Vincular a outro item" aria-label="Vincular item">🔗</button>
                         <button class="btn-next-day" title="Passar para próximo dia" aria-label="Próximo dia">⏭</button>
                         <button class="btn-aprend-item${hasAprendNotes ? ' has-notes' : ''}" title="Inserir nota de Aprendizados" aria-label="Aprendizados">📚</button>
+                        <button class="btn-mic" title="Gravar nota por voz" aria-label="Gravar nota por voz">🎙️</button>
                     </div>
                 </div>
             `;
@@ -3285,8 +3273,6 @@ class HabitTrackerApp {
                     clickedElement.closest('.btn-next-day') ||
                     clickedElement.closest('.btn-google-search') ||
                     clickedElement.closest('.btn-link-item') ||
-                    clickedElement.closest('.btn-week-summary') ||
-                    clickedElement.closest('.week-summary-popup') ||
                     clickedElement.closest('.item-aprend-dropdown') ||
                     clickedElement.closest('.item-week-bar') ||
                     clickedElement.closest('.note-img-remove') ||
@@ -3622,23 +3608,21 @@ class HabitTrackerApp {
             this._statusEscapeHandlers.push(closeOnEscape);
             document.addEventListener('keydown', closeOnEscape);
 
-            // Mic button logic (botão removido da UI, mas lógica preservada caso seja restaurado)
+            // Mic button logic
             const micBtn = itemEl.querySelector('.btn-mic');
-            if (micBtn) {
-                micBtn.addEventListener('click', (ev) => {
-                    ev.stopPropagation();
-                    if (!this.recognitionSupported) {
-                        alert('Transcrição por voz não suportada neste navegador. Use Chrome ou Safari (com suporte).');
-                        return;
-                    }
+            micBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (!this.recognitionSupported) {
+                    alert('Transcrição por voz não suportada neste navegador. Use Chrome ou Safari (com suporte).');
+                    return;
+                }
 
-                    if (this.isRecording && this.currentRecording && this.currentRecording.itemId === item.id && this.currentRecording.category === category) {
-                        this.stopRecording();
-                    } else {
-                        this.startRecordingFor(itemEl, category, item.id);
-                    }
-                });
-            }
+                if (this.isRecording && this.currentRecording && this.currentRecording.itemId === item.id && this.currentRecording.category === category) {
+                    this.stopRecording();
+                } else {
+                    this.startRecordingFor(itemEl, category, item.id);
+                }
+            });
 
             // ── Google Search por nota do item ───────────────────────────
             const googleBtn = itemEl.querySelector('.btn-google-search');
@@ -3759,16 +3743,6 @@ class HabitTrackerApp {
             //         this.renderTodayView();
             //     });
             // }
-
-            // ── Botão Resumo Semanal ──────────────────────────────────────
-            const weekSummaryBtn = itemEl.querySelector('.btn-week-summary');
-            if (weekSummaryBtn) {
-                weekSummaryBtn.addEventListener('click', (ev) => {
-                    ev.stopPropagation();
-                    ev.preventDefault();
-                    this._showWeekSummaryPopup(category, item.id, item.name);
-                });
-            }
 
             container.appendChild(itemEl);
 
@@ -3904,230 +3878,6 @@ class HabitTrackerApp {
     _escapeHtmlAttr(str) {
         if (!str) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
-
-    // ── Resumo Semanal Popup ──────────────────────────────────────────────
-    // Fecha qualquer popup de resumo semanal aberto
-    _closeWeekSummaryPopup() {
-        const existing = document.querySelector('.week-summary-overlay');
-        if (existing) existing.remove();
-    }
-
-    // Mostra popup com resumo da semana para um item (status + nota de cada dia)
-    async _showWeekSummaryPopup(category, itemId, itemName) {
-        // Fechar popup anterior se houver
-        this._closeWeekSummaryPopup();
-
-        const dayLabels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
-        const monday = this.getWeekMonday(this.currentDate);
-        const todayStr = this.getDateString(new Date());
-
-        // Buscar dados dos 7 dias
-        const days = Array.from({ length: 7 }, (_, i) => {
-            const d = new Date(monday);
-            d.setDate(monday.getDate() + i);
-            return d;
-        });
-
-        const statuses = await Promise.all(
-            days.map(d => StorageManager.getItemStatus(this.getDateString(d), category, itemId))
-        );
-
-        // Montar overlay
-        const overlay = document.createElement('div');
-        overlay.className = 'week-summary-overlay';
-        overlay.setAttribute('role', 'dialog');
-        overlay.setAttribute('aria-modal', 'true');
-        overlay.setAttribute('aria-label', 'Resumo semanal');
-
-        const popup = document.createElement('div');
-        popup.className = 'week-summary-popup';
-
-        // Header do popup
-        const popupHeader = document.createElement('div');
-        popupHeader.className = 'week-summary-header';
-
-        const titleEl = document.createElement('span');
-        titleEl.className = 'week-summary-title';
-        titleEl.textContent = itemName; // textContent auto-escapes HTML entities
-
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'week-summary-close';
-        closeBtn.textContent = '✕';
-        closeBtn.title = 'Fechar';
-        closeBtn.setAttribute('aria-label', 'Fechar resumo semanal');
-
-        popupHeader.appendChild(titleEl);
-        popupHeader.appendChild(closeBtn);
-        popup.appendChild(popupHeader);
-
-        // Subtitle com intervalo da semana
-        const weekStart = days[0];
-        const weekEnd = days[6];
-        const fmtDay = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-        const subtitleEl = document.createElement('div');
-        subtitleEl.className = 'week-summary-subtitle';
-        subtitleEl.textContent = `Semana ${fmtDay(weekStart)} – ${fmtDay(weekEnd)}`;
-        popup.appendChild(subtitleEl);
-
-        // Lista de dias
-        const listEl = document.createElement('div');
-        listEl.className = 'week-summary-list';
-
-        days.forEach((d, i) => {
-            const dateStr = this.getDateString(d);
-            const data = statuses[i];
-            const status = data.status || 'none';
-            const note = data.note || '';
-            const cfg = STATUS_CONFIG[status] || STATUS_CONFIG['none'];
-            const isToday = dateStr === todayStr;
-
-            const row = document.createElement('div');
-            row.className = 'week-summary-row' + (isToday ? ' is-today' : '');
-
-            // Indicador de status (bolinha colorida)
-            const statusDot = document.createElement('span');
-            statusDot.className = 'week-summary-dot';
-            statusDot.dataset.status = status;
-
-            // Label do dia
-            const dayLabel = document.createElement('span');
-            dayLabel.className = 'week-summary-day';
-            dayLabel.textContent = dayLabels[i];
-
-            // Status text
-            const statusText = document.createElement('span');
-            statusText.className = 'week-summary-status';
-            statusText.textContent = cfg.label || '—';
-            statusText.dataset.status = status;
-
-            // Nota (se houver)
-            const noteEl = document.createElement('div');
-            noteEl.className = 'week-summary-note';
-            if (note.trim()) {
-                // Sanitizar a nota: apenas texto puro, sem HTML
-                noteEl.textContent = note.replace(/\[img:[^\]]*\]/g, '[imagem]');
-            } else {
-                noteEl.textContent = '—';
-                noteEl.classList.add('empty');
-            }
-
-            // Botão copiar (só aparece se houver nota)
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'week-summary-copy';
-            copyBtn.textContent = '📄';
-            copyBtn.title = 'Copiar nota';
-            copyBtn.setAttribute('aria-label', `Copiar nota de ${dayLabels[i]}`);
-            if (!note.trim()) {
-                copyBtn.style.visibility = 'hidden';
-            }
-            copyBtn.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                ev.preventDefault();
-                // Copiar apenas a nota pura
-                const textToCopy = note.replace(/\[img:[^\]]*\]/g, '').trim();
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(textToCopy).then(() => {
-                        copyBtn.textContent = '✅';
-                        setTimeout(() => { copyBtn.textContent = '📄'; }, 1200);
-                    }).catch(() => {
-                        this._fallbackCopyText(textToCopy, copyBtn);
-                    });
-                } else {
-                    this._fallbackCopyText(textToCopy, copyBtn);
-                }
-            });
-
-            // Montar a row
-            const topRow = document.createElement('div');
-            topRow.className = 'week-summary-row-top';
-            topRow.appendChild(statusDot);
-            topRow.appendChild(dayLabel);
-            topRow.appendChild(statusText);
-            topRow.appendChild(copyBtn);
-
-            row.appendChild(topRow);
-            row.appendChild(noteEl);
-            listEl.appendChild(row);
-        });
-
-        popup.appendChild(listEl);
-
-        // Botão copiar tudo
-        const copyAllBtn = document.createElement('button');
-        copyAllBtn.className = 'week-summary-copy-all';
-        copyAllBtn.textContent = '📋 Copiar tudo';
-        copyAllBtn.setAttribute('aria-label', 'Copiar resumo completo da semana');
-        copyAllBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            ev.preventDefault();
-            // Copiar apenas as notas (sem nome, semana, dia ou status)
-            const lines = days.map((d, i) => {
-                const note = (statuses[i].note || '').replace(/\[img:[^\]]*\]/g, '').trim();
-                return note;
-            }).filter(n => n.length > 0);
-            const fullText = lines.join('\n');
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(fullText).then(() => {
-                    copyAllBtn.textContent = '✅ Copiado!';
-                    setTimeout(() => { copyAllBtn.textContent = '📋 Copiar tudo'; }, 1500);
-                }).catch(() => {
-                    this._fallbackCopyText(fullText, copyAllBtn);
-                });
-            } else {
-                this._fallbackCopyText(fullText, copyAllBtn);
-            }
-        });
-        popup.appendChild(copyAllBtn);
-
-        overlay.appendChild(popup);
-        document.body.appendChild(overlay);
-
-        // Fechar ao clicar no overlay (fora do popup)
-        overlay.addEventListener('click', (ev) => {
-            if (ev.target === overlay) {
-                this._closeWeekSummaryPopup();
-            }
-        });
-
-        // Fechar ao clicar no X
-        closeBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            this._closeWeekSummaryPopup();
-        });
-
-        // Fechar com Escape
-        const escHandler = (ev) => {
-            if (ev.key === 'Escape') {
-                this._closeWeekSummaryPopup();
-                document.removeEventListener('keydown', escHandler);
-            }
-        };
-        document.addEventListener('keydown', escHandler);
-
-        // Focus trap: foco inicial no botão de fechar
-        requestAnimationFrame(() => closeBtn.focus());
-    }
-
-    // Fallback para copiar texto quando Clipboard API não está disponível
-    _fallbackCopyText(text, feedbackEl) {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
-        ta.setAttribute('readonly', '');
-        document.body.appendChild(ta);
-        ta.select();
-        try {
-            document.execCommand('copy');
-            if (feedbackEl) {
-                const original = feedbackEl.textContent;
-                feedbackEl.textContent = '✅';
-                setTimeout(() => { feedbackEl.textContent = original; }, 1200);
-            }
-        } catch (e) {
-            // Silently fail
-        }
-        document.body.removeChild(ta);
     }
 
     // Extrai texto de um contentEditable preservando quebras de linha corretamente
