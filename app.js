@@ -3025,6 +3025,8 @@ class HabitTrackerApp {
         this.exitCurrentEditMode(true);
         // Fechar dropdown de aprendizados por item se aberto
         this._closeAllItemAprendDropdowns();
+        // Fechar popup de resumo semanal se aberto
+        this._closeWeekSummaryPopup();
         
         // Clean up old event listeners
         if (this._statusClickHandlers) {
@@ -3218,10 +3220,10 @@ class HabitTrackerApp {
                     <span class="item-name" tabindex="0">${this._escapeHtml(item.name)}</span>
                     <div style="display:flex;gap:0.5rem;align-items:center;">
                         <button class="btn-google-search" title="Pesquisar nota no Google" aria-label="Pesquisar no Google" style="display:${hasNoteInitially ? 'inline-flex' : 'none'};align-items:center;justify-content:center;padding:2px 4px;background:none;border:none;cursor:pointer;border-radius:4px;opacity:0.75;" tabindex="-1"><img src="https://www.google.com/favicon.ico" alt="Google" width="14" height="14" style="display:block;pointer-events:none;"></button>
+                        <button class="btn-week-summary" title="Resumo semanal" aria-label="Resumo semanal">📋</button>
                         <button class="btn-link-item${hasLinksInitially ? ' has-links' : ''}" title="Vincular a outro item" aria-label="Vincular item">🔗</button>
                         <button class="btn-next-day" title="Passar para próximo dia" aria-label="Próximo dia">⏭</button>
                         <button class="btn-aprend-item${hasAprendNotes ? ' has-notes' : ''}" title="Inserir nota de Aprendizados" aria-label="Aprendizados">📚</button>
-                        <button class="btn-mic" title="Gravar nota por voz" aria-label="Gravar nota por voz">🎙️</button>
                     </div>
                 </div>
             `;
@@ -3279,6 +3281,8 @@ class HabitTrackerApp {
                     clickedElement.closest('.btn-next-day') ||
                     clickedElement.closest('.btn-google-search') ||
                     clickedElement.closest('.btn-link-item') ||
+                    clickedElement.closest('.btn-week-summary') ||
+                    clickedElement.closest('.week-summary-overlay') ||
                     clickedElement.closest('.item-aprend-dropdown') ||
                     clickedElement.closest('.item-week-bar') ||
                     clickedElement.closest('.note-img-remove') ||
@@ -3614,21 +3618,23 @@ class HabitTrackerApp {
             this._statusEscapeHandlers.push(closeOnEscape);
             document.addEventListener('keydown', closeOnEscape);
 
-            // Mic button logic
+            // Mic button logic (botão removido da UI, lógica preservada como fallback)
             const micBtn = itemEl.querySelector('.btn-mic');
-            micBtn.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                if (!this.recognitionSupported) {
-                    alert('Transcrição por voz não suportada neste navegador. Use Chrome ou Safari (com suporte).');
-                    return;
-                }
+            if (micBtn) {
+                micBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    if (!this.recognitionSupported) {
+                        alert('Transcrição por voz não suportada neste navegador. Use Chrome ou Safari (com suporte).');
+                        return;
+                    }
 
-                if (this.isRecording && this.currentRecording && this.currentRecording.itemId === item.id && this.currentRecording.category === category) {
-                    this.stopRecording();
-                } else {
-                    this.startRecordingFor(itemEl, category, item.id);
-                }
-            });
+                    if (this.isRecording && this.currentRecording && this.currentRecording.itemId === item.id && this.currentRecording.category === category) {
+                        this.stopRecording();
+                    } else {
+                        this.startRecordingFor(itemEl, category, item.id);
+                    }
+                });
+            }
 
             // ── Google Search por nota do item ───────────────────────────
             const googleBtn = itemEl.querySelector('.btn-google-search');
@@ -3749,6 +3755,16 @@ class HabitTrackerApp {
             //         this.renderTodayView();
             //     });
             // }
+
+            // ── Resumo semanal (notas da semana) ─────────────────────────
+            const weekSummaryBtn = itemEl.querySelector('.btn-week-summary');
+            if (weekSummaryBtn) {
+                weekSummaryBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                    this._showWeekSummaryPopup(category, item.id, item.name);
+                });
+            }
 
             container.appendChild(itemEl);
 
@@ -3884,6 +3900,193 @@ class HabitTrackerApp {
     _escapeHtmlAttr(str) {
         if (!str) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // ── Resumo Semanal — Popup ────────────────────────────────────────────
+
+    _closeWeekSummaryPopup() {
+        const el = document.querySelector('.week-summary-overlay');
+        if (el) el.remove();
+    }
+
+    async _showWeekSummaryPopup(category, itemId, itemName) {
+        this._closeWeekSummaryPopup();
+
+        const DAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+        const monday   = this.getWeekMonday(this.currentDate);
+        const todayStr = this.getDateString(new Date());
+
+        const dates = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(monday);
+            d.setDate(monday.getDate() + i);
+            return d;
+        });
+
+        const weekData = await Promise.all(
+            dates.map(d => StorageManager.getItemStatus(this.getDateString(d), category, itemId))
+        );
+
+        // ── Overlay ──────────────────────────────────────────────────────
+        const overlay = document.createElement('div');
+        overlay.className = 'week-summary-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', 'Resumo semanal');
+
+        // ── Popup container ──────────────────────────────────────────────
+        const popup = document.createElement('div');
+        popup.className = 'week-summary-popup';
+
+        // Header
+        const header = document.createElement('div');
+        header.className = 'ws-header';
+        const title = document.createElement('span');
+        title.className = 'ws-title';
+        title.textContent = itemName;
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'ws-close';
+        closeBtn.textContent = '✕';
+        closeBtn.title = 'Fechar';
+        closeBtn.setAttribute('aria-label', 'Fechar');
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+        popup.appendChild(header);
+
+        // Subtitle (intervalo da semana)
+        const fmtD = (d) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+        const sub = document.createElement('div');
+        sub.className = 'ws-subtitle';
+        sub.textContent = `Semana ${fmtD(dates[0])} – ${fmtD(dates[6])}`;
+        popup.appendChild(sub);
+
+        // ── Lista de dias ────────────────────────────────────────────────
+        const list = document.createElement('div');
+        list.className = 'ws-list';
+
+        dates.forEach((d, i) => {
+            const dateStr = this.getDateString(d);
+            const info    = weekData[i];
+            const status  = info.status || 'none';
+            const note    = info.note   || '';
+            const cfg     = STATUS_CONFIG[status] || STATUS_CONFIG['none'];
+            const isToday = dateStr === todayStr;
+
+            const row = document.createElement('div');
+            row.className = 'ws-row' + (isToday ? ' ws-today' : '');
+
+            // Top line: dot + day + status + copy btn
+            const top = document.createElement('div');
+            top.className = 'ws-row-top';
+
+            const dot = document.createElement('span');
+            dot.className = 'ws-dot';
+            dot.dataset.status = status;
+
+            const day = document.createElement('span');
+            day.className = 'ws-day';
+            day.textContent = DAYS[i];
+
+            const statusLabel = document.createElement('span');
+            statusLabel.className = 'ws-status';
+            statusLabel.textContent = cfg.label || '—';
+            statusLabel.dataset.status = status;
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'ws-copy';
+            copyBtn.textContent = '📄';
+            copyBtn.title = 'Copiar nota';
+            copyBtn.setAttribute('aria-label', 'Copiar nota de ' + DAYS[i]);
+            if (!note.trim()) copyBtn.style.visibility = 'hidden';
+
+            copyBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                ev.preventDefault();
+                const plain = note.replace(/\[img:[^\]]*\]/g, '').trim();
+                this._wsCopyText(plain, copyBtn, '📄');
+            });
+
+            top.appendChild(dot);
+            top.appendChild(day);
+            top.appendChild(statusLabel);
+            top.appendChild(copyBtn);
+
+            // Note text
+            const noteEl = document.createElement('div');
+            noteEl.className = 'ws-note' + (note.trim() ? '' : ' ws-empty');
+            noteEl.textContent = note.trim()
+                ? note.replace(/\[img:[^\]]*\]/g, '[imagem]')
+                : '—';
+
+            row.appendChild(top);
+            row.appendChild(noteEl);
+            list.appendChild(row);
+        });
+
+        popup.appendChild(list);
+
+        // ── Botão copiar tudo ────────────────────────────────────────────
+        const copyAll = document.createElement('button');
+        copyAll.className = 'ws-copy-all';
+        copyAll.textContent = '📋 Copiar tudo';
+        copyAll.setAttribute('aria-label', 'Copiar todas as notas');
+        copyAll.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+            const allNotes = dates
+                .map((_, i) => (weekData[i].note || '').replace(/\[img:[^\]]*\]/g, '').trim())
+                .filter(n => n.length > 0);
+            this._wsCopyText(allNotes.join('\n'), copyAll, '📋 Copiar tudo');
+        });
+        popup.appendChild(copyAll);
+
+        // ── Mount ────────────────────────────────────────────────────────
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+
+        // Fechar: overlay click
+        overlay.addEventListener('click', (ev) => {
+            if (ev.target === overlay) this._closeWeekSummaryPopup();
+        });
+        // Fechar: botão X
+        closeBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            this._closeWeekSummaryPopup();
+        });
+        // Fechar: Escape
+        const onEsc = (ev) => {
+            if (ev.key === 'Escape') {
+                this._closeWeekSummaryPopup();
+                document.removeEventListener('keydown', onEsc);
+            }
+        };
+        document.addEventListener('keydown', onEsc);
+        requestAnimationFrame(() => closeBtn.focus());
+    }
+
+    // Copia texto para clipboard com feedback visual (sem depender de innerHTML)
+    _wsCopyText(text, btnEl, originalLabel) {
+        const ok = () => {
+            btnEl.textContent = '✅';
+            setTimeout(() => { btnEl.textContent = originalLabel; }, 1200);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok).catch(() => this._wsCopyFallback(text, btnEl, originalLabel));
+        } else {
+            this._wsCopyFallback(text, btnEl, originalLabel);
+        }
+    }
+
+    _wsCopyFallback(text, btnEl, originalLabel) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch {}
+        document.body.removeChild(ta);
+        btnEl.textContent = '✅';
+        setTimeout(() => { btnEl.textContent = originalLabel; }, 1200);
     }
 
     // Extrai texto de um contentEditable preservando quebras de linha corretamente
