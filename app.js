@@ -5644,24 +5644,46 @@ class HabitTrackerApp {
             const existing = Chart.getChart(canvas);
             if (existing) existing.destroy();
 
+            // Inline plugin to draw value labels on top of bars
+            const miniBarValuePlugin = {
+                id: 'miniBarValueLabels',
+                afterDatasetsDraw(chart) {
+                    const { ctx: c } = chart;
+                    chart.data.datasets.forEach((dataset, i) => {
+                        const meta = chart.getDatasetMeta(i);
+                        meta.data.forEach((bar, index) => {
+                            const value = dataset.data[index];
+                            if (value > 0) {
+                                c.save();
+                                c.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                                c.font = 'bold 9px Quicksand';
+                                c.textAlign = 'center';
+                                c.textBaseline = 'bottom';
+                                c.fillText(value, bar.x, bar.y - 2);
+                                c.restore();
+                            }
+                        });
+                    });
+                }
+            };
+
             new Chart(canvas, {
                 type: 'bar',
+                plugins: [miniBarValuePlugin],
                 data: {
                     labels,
                     datasets: [
                         { label: 'Concluído',    data: concluido,    backgroundColor: '#22c55e', borderRadius: 4 },
-                        { label: 'Andamento',    data: emAndamento,  backgroundColor: '#eab308', borderRadius: 4 },
-                        { label: 'Aguardando',   data: aguardando,   backgroundColor: '#95d3ee', borderRadius: 4 },
-                        { label: 'Não Feito',    data: naoFeito,     backgroundColor: '#ef4444', borderRadius: 4 },
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: { padding: { top: 14 } },
                     animation: { duration: 400, easing: 'easeInOutQuart' },
                     plugins: {
                         legend: {
-                            display: true,
+                            display: false,
                             position: 'bottom',
                             labels: {
                                 font: { family: 'Quicksand', size: 10 },
@@ -5819,14 +5841,7 @@ class HabitTrackerApp {
             yMax = totalDemandas;
         } else {
             // Calcula o valor máximo real dos dados para expandir o eixo Y dinamicamente
-            const allValues = [
-                ...datasets.concluido,
-                ...datasets.emAndamento,
-                ...datasets.aguardando,
-                ...datasets.naoFeito,
-                ...datasets.pulado
-            ];
-            const dataMax = Math.max(...allValues, 1);
+            const dataMax = Math.max(...datasets.concluido, 1);
             // Adiciona 10% de margem superior para melhor visualização
             yMax = Math.ceil(dataMax * 1.10);
         }
@@ -5834,8 +5849,31 @@ class HabitTrackerApp {
         const yStepSize = Math.ceil(yMax / 8);
 
         const ctx = canvas.getContext('2d');
+        // Inline plugin to draw value labels on top of bars
+        const barValuePlugin = {
+            id: 'barValueLabels',
+            afterDatasetsDraw(chart) {
+                const { ctx: c } = chart;
+                chart.data.datasets.forEach((dataset, i) => {
+                    const meta = chart.getDatasetMeta(i);
+                    meta.data.forEach((bar, index) => {
+                        const value = dataset.data[index];
+                        if (value > 0) {
+                            c.save();
+                            c.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                            c.font = 'bold 11px Quicksand';
+                            c.textAlign = 'center';
+                            c.textBaseline = 'bottom';
+                            c.fillText(value, bar.x, bar.y - 4);
+                            c.restore();
+                        }
+                    });
+                });
+            }
+        };
         this.performanceChart = new Chart(ctx, {
             type: 'bar',
+            plugins: [barValuePlugin],
             data: {
                 labels: labels,
                 datasets: [
@@ -5844,42 +5882,20 @@ class HabitTrackerApp {
                         data: datasets.concluido,
                         backgroundColor: '#22c55e',
                         borderRadius: 6,
-                    },
-                    {
-                        label: 'Em Andamento',
-                        data: datasets.emAndamento,
-                        backgroundColor: '#eab308',
-                        borderRadius: 6,
-                    },
-                    {
-                        label: 'Aguardando',
-                        data: datasets.aguardando,
-                        backgroundColor: '#95d3ee',
-                        borderRadius: 6,
-                    },
-                    {
-                        label: 'Não Feito',
-                        data: datasets.naoFeito,
-                        backgroundColor: '#ef4444',
-                        borderRadius: 6,
-                    },
-                    {
-                        label: 'Pulado',
-                        data: datasets.pulado,
-                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                        borderRadius: 6,
                     }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                layout: { padding: { top: 18 } },
                 animation: {
                     duration: 600,
                     easing: 'easeInOutQuart'
                 },
                 plugins: {
                     legend: {
+                        display: false,
                         position: 'bottom',
                         labels: {
                             font: {
