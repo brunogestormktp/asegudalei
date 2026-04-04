@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.75, maximum-scale=0.75, minimum-scale=0.75, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https://*.supabase.co blob: data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' https://*.supabase.co blob: data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net;">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta http-equiv="Permissions-Policy" content="camera=(self), microphone=(self), geolocation=()">
@@ -20,6 +20,39 @@
     <link rel="stylesheet" href="css/styles.css?v=20260329c">
 </head>
 <body>
+    <!-- Onboarding overlay -->
+    <div id="onboardingOverlay" class="onboarding-overlay hidden">
+        <div class="onboarding-modal">
+            <div class="onboarding-logo">🏆</div>
+            <h2 class="onboarding-title">Bem-vindo!</h2>
+            <p class="onboarding-subtitle">Como quer ser chamado na plataforma?</p>
+
+            <input type="text" id="onboardingName" class="onboarding-input"
+                   placeholder="Seu nome" maxlength="50" autocomplete="off" />
+
+            <div class="onboarding-photo-area">
+                <label class="onboarding-photo-label" for="onboardingPhoto">
+                    <div class="onboarding-avatar-preview" id="onboardingAvatarPreview">📷</div>
+                    <span>Foto de perfil (opcional)</span>
+                </label>
+                <input type="file" id="onboardingPhoto" accept="image/png,image/jpeg,image/webp"
+                       class="onboarding-photo-input" />
+            </div>
+
+            <div class="onboarding-ranking-notice">
+                <p>
+                    🌍 Você fará parte do <strong>ranking mundial</strong> da plataforma.<br>
+                    Outros usuários verão seu nome e quantas tarefas você concluiu.<br>
+                    <span>Você pode se ocultar a qualquer momento nas <strong>Configurações</strong>.</span>
+                </p>
+            </div>
+
+            <button class="onboarding-btn" id="onboardingSubmit">
+                Entrar na plataforma →
+            </button>
+        </div>
+    </div>
+
     <div class="app">
         <!-- Header -->
         <header class="header">
@@ -109,6 +142,17 @@
                         <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
                     </svg>
                     <span>Aprendizados</span>
+                </button>
+                <button class="btn-nav-header" id="btnRanking" data-view="ranking">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5C7 4 7 7 7 7"></path>
+                        <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5C17 4 17 7 17 7"></path>
+                        <path d="M4 22h16"></path>
+                        <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22"></path>
+                        <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22"></path>
+                        <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
+                    </svg>
+                    <span>Ranking</span>
                 </button>
                 <button class="btn-nav-header btn-settings" id="btnSettings" title="Configurações">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -302,6 +346,36 @@
                     <h2 class="settings-title">⚙️ Configurações</h2>
                     <p class="settings-subtitle">Personalize categorias e demandas. Arraste para reordenar, edite os nomes, adicione ou remova itens.</p>
 
+                    <!-- Ranking Profile Section -->
+                    <div class="ranking-settings-section">
+                        <h3 class="ranking-settings-title">🏆 Perfil do Ranking</h3>
+                        <p class="ranking-settings-desc">Configure seu nome e visibilidade no ranking mundial.</p>
+                        <div class="ranking-settings-fields">
+                            <div class="ranking-settings-field">
+                                <label for="rankingDisplayName" class="ranking-settings-label">Nome de exibição</label>
+                                <input type="text" id="rankingDisplayName" class="ranking-settings-input" maxlength="50" placeholder="Seu nome no ranking..." autocomplete="off" />
+                            </div>
+                            <div class="ranking-settings-field">
+                                <label class="ranking-settings-label">Foto de perfil</label>
+                                <div class="ranking-settings-photo-row">
+                                    <div class="ranking-avatar-preview" id="rankingAvatarPreview">📷</div>
+                                    <label class="ranking-settings-photo-btn" for="rankingPhotoInput">Trocar foto</label>
+                                    <input type="file" id="rankingPhotoInput" accept="image/png,image/jpeg,image/webp" class="ranking-settings-photo-input" />
+                                </div>
+                            </div>
+                            <div class="ranking-settings-field ranking-settings-toggle-field">
+                                <label for="rankingShowToggle" class="ranking-settings-label">Aparecer no ranking mundial</label>
+                                <label class="ranking-toggle">
+                                    <input type="checkbox" id="rankingShowToggle" checked />
+                                    <span class="ranking-toggle-slider"></span>
+                                </label>
+                            </div>
+                            <p class="ranking-settings-warning">⚠️ Seu nome e estatísticas serão visíveis para todos os usuários.</p>
+                            <button class="ranking-settings-save-btn" id="rankingSettingsSave">💾 Salvar perfil</button>
+                            <span class="ranking-settings-feedback" id="rankingSettingsFeedback"></span>
+                        </div>
+                    </div>
+
                     <div class="settings-columns">
                         <!-- Clientes Section -->
                         <div class="settings-section" id="settingsSectionClientes">
@@ -348,6 +422,23 @@
                             </button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Ranking View -->
+            <div class="view hidden" id="rankingView">
+                <div class="ranking-container">
+                    <div class="ranking-header">
+                        <h2 class="ranking-title">🏆 Ranking Mundial</h2>
+                        <div class="ranking-tabs">
+                            <button class="ranking-tab active" data-tab="global">Global</button>
+                            <button class="ranking-tab" data-tab="weekly">Semanal</button>
+                            <button class="ranking-tab" data-tab="monthly">Mensal</button>
+                        </div>
+                    </div>
+                    <div class="ranking-my-card" id="rankingMyCard"></div>
+                    <div class="ranking-list" id="rankingList"></div>
+                    <div class="ranking-pagination" id="rankingPagination"></div>
                 </div>
             </div>
         </main>
@@ -473,6 +564,8 @@
     <script src="js/features/app-edit.js"></script>
     <script src="js/features/app-speech.js"></script>
     <script src="js/features/app-settings.js"></script>
+    <script src="js/features/app-onboarding.js"></script>
+    <script src="js/features/app-ranking.js"></script>
     <script src="js/features/app-history.js"></script>
     <script src="js/features/app-week-bar.js"></script>
     <script src="js/features/app-today.js"></script>

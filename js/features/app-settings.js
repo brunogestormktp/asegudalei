@@ -188,6 +188,9 @@ Object.assign(HabitTrackerApp.prototype, {
             // Ativar drag-and-drop nesta lista
             this._initDragDrop(listEl, key);
         });
+
+        // Populate ranking profile section
+        this._renderRankingSettingsSection();
     },
 
     /** Inicializa drag-and-drop HTML5 em uma settings-items-list */
@@ -418,6 +421,159 @@ Object.assign(HabitTrackerApp.prototype, {
         // Re-renderizar settings e views
         this.renderSettingsView();
         this._reRenderAfterSettingsChange();
+    },
+
+    // ── Ranking Profile Settings ─────────────────────────────────────────
+
+    /** Loads ranking profile from user_rankings and populates the settings fields */
+    async _renderRankingSettingsSection() {
+        const sb = StorageManager.getSupabase();
+        const userId = StorageManager.getUserId();
+        const nameInput = document.getElementById('rankingDisplayName');
+        const showToggle = document.getElementById('rankingShowToggle');
+        const saveBtn = document.getElementById('rankingSettingsSave');
+        const feedback = document.getElementById('rankingSettingsFeedback');
+        const avatarPreview = document.getElementById('rankingAvatarPreview');
+
+        if (!nameInput || !showToggle || !saveBtn) return;
+
+        // Load existing data
+        if (sb && userId) {
+            try {
+                const { data } = await sb
+                    .from('user_rankings')
+                    .select('display_name, show_in_ranking, avatar_url')
+                    .eq('user_id', userId)
+                    .single();
+
+                if (data) {
+                    nameInput.value = data.display_name || '';
+                    showToggle.checked = data.show_in_ranking !== false;
+                    // Show current avatar
+                    if (avatarPreview && data.avatar_url) {
+                        avatarPreview.style.backgroundImage = `url(${data.avatar_url})`;
+                        avatarPreview.style.backgroundSize = 'cover';
+                        avatarPreview.style.backgroundPosition = 'center';
+                        avatarPreview.textContent = '';
+                    }
+                }
+            } catch (err) {
+                console.warn('Could not load ranking profile:', err);
+            }
+        }
+
+        // Setup save handler (remove previous to avoid duplicates)
+        saveBtn.onclick = null;
+        saveBtn.onclick = () => this._saveRankingProfile();
+
+        // Photo preview on change
+        const photoInput = document.getElementById('rankingPhotoInput');
+        if (photoInput) {
+            photoInput.onchange = null;
+            photoInput.onchange = (e) => {
+                const file = e.target.files?.[0];
+                if (!file || !avatarPreview) return;
+                const url = URL.createObjectURL(file);
+                avatarPreview.style.backgroundImage = `url(${url})`;
+                avatarPreview.style.backgroundSize = 'cover';
+                avatarPreview.style.backgroundPosition = 'center';
+                avatarPreview.textContent = '';
+            };
+        }
+    },
+
+    /** Sanitizes display_name — removes dangerous chars, trims, max 50 */
+    _sanitizeDisplayName(name) {
+        if (!name || typeof name !== 'string') return 'Anônimo';
+        return name
+            .trim()
+            .slice(0, 50)
+            .replace(/[<>"'`]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim() || 'Anônimo';
+    },
+
+    /** Saves ranking profile (display_name + show_in_ranking + avatar) to user_rankings */
+    async _saveRankingProfile() {
+        const sb = StorageManager.getSupabase();
+        const userId = StorageManager.getUserId();
+        const nameInput = document.getElementById('rankingDisplayName');
+        const showToggle = document.getElementById('rankingShowToggle');
+        const feedback = document.getElementById('rankingSettingsFeedback');
+        const photoInput = document.getElementById('rankingPhotoInput');
+
+        if (!sb || !userId || !nameInput || !showToggle) return;
+
+        const displayName = this._sanitizeDisplayName(nameInput.value);
+        const showInRanking = showToggle.checked;
+
+        // Update input with sanitized value
+        nameInput.value = displayName;
+
+        if (feedback) {
+            feedback.textContent = 'Salvando...';
+            feedback.className = 'ranking-settings-feedback';
+        }
+
+        try {
+            // Upload photo if provided
+            let avatarUrl = null;
+            const file = photoInput?.files?.[0];
+            if (file && file.size <= 2097152) {
+                const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+                if (allowedTypes.includes(file.type)) {
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    const path = `${userId}/avatar.${ext}`;
+                    const { data: uploadData, error: uploadError } = await sb.storage
+                        .from('avatars')
+                        .upload(path, file, { upsert: true });
+
+                    if (uploadData && !uploadError) {
+                        const { data: urlData } = sb.storage.from('avatars').getPublicUrl(path);
+                        avatarUrl = urlData?.publicUrl || null;
+                    } else if (uploadError) {
+                        console.warn('Avatar upload error:', uploadError);
+                    }
+                }
+            }
+
+            const upsertPayload = {
+                user_id: userId,
+                display_name: displayName,
+                show_in_ranking: showInRanking,
+            };
+            if (avatarUrl) {
+                upsertPayload.avatar_url = avatarUrl;
+            }
+
+            const { error } = await sb
+                .from('user_rankings')
+                .upsert(upsertPayload, { onConflict: 'user_id' });
+
+            if (error) {
+                console.error('Save ranking profile error:', error);
+                if (feedback) {
+                    feedback.textContent = '❌ Erro ao salvar';
+                    feedback.className = 'ranking-settings-feedback ranking-settings-feedback--error';
+                }
+                return;
+            }
+
+            // Clear file input after successful upload
+            if (photoInput) photoInput.value = '';
+
+            if (feedback) {
+                feedback.textContent = '✅ Perfil salvo!';
+                feedback.className = 'ranking-settings-feedback ranking-settings-feedback--success';
+                setTimeout(() => { feedback.textContent = ''; }, 3000);
+            }
+        } catch (err) {
+            console.error('Save ranking profile exception:', err);
+            if (feedback) {
+                feedback.textContent = '❌ Erro ao salvar';
+                feedback.className = 'ranking-settings-feedback ranking-settings-feedback--error';
+            }
+        }
     },
 
 });

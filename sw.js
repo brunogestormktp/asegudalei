@@ -4,6 +4,12 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {
+    // Never cache Edge Function calls (ranking anti-cheat) or ranking data
+    if (e.request.url.includes('/functions/v1/calculate-ranking') ||
+        e.request.url.includes('user_rankings')) {
+        e.respondWith(fetch(e.request));
+        return;
+    }
     e.respondWith(
         fetch(e.request).catch(() => {
             // Offline ou erro de rede — retorna resposta vazia para não rejeitar a promise

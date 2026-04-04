@@ -133,6 +133,11 @@ Object.assign(HabitTrackerApp.prototype, {
 
                 await this._propagateStatusToLinks(dateStr, category, itemId, opt.key);
 
+                // Trigger debounced ranking refresh
+                if (typeof this._debouncedRankingRefresh === 'function') {
+                    this._debouncedRankingRefresh();
+                }
+
                 dayEl.dataset.status = opt.key;
                 blockEl.dataset.status = opt.key;
 

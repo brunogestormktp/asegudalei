@@ -63,6 +63,13 @@ class HabitTrackerApp {
             window._pendingRollover = false;
             this._checkMissedRollover();
         }
+        // Check onboarding if it was deferred (sync happened before app init)
+        if (window._pendingOnboarding) {
+            window._pendingOnboarding = false;
+            if (typeof this._checkOnboarding === 'function') {
+                this._checkOnboarding();
+            }
+        }
         this._scheduleMidnightRollover();
         // Garantir flush para Supabase quando o usuário sai ou minimiza a aba
         this._setupUnloadFlush();
@@ -225,6 +232,8 @@ class HabitTrackerApp {
             this.renderReports(this.currentReportPeriod || 'week');
         } else if (this.currentView === 'aprendizados') {
             if (typeof Aprendizados !== 'undefined') Aprendizados.onShow();
+        } else if (this.currentView === 'ranking') {
+            if (typeof this.renderRankingView === 'function') this.renderRankingView();
         }
     }
 
@@ -294,6 +303,11 @@ class HabitTrackerApp {
             document.getElementById('btnSettings').classList.add('active');
             window.scrollTo(0, 0);
             this.renderSettingsView();
+        } else if (view === 'ranking') {
+            document.getElementById('rankingView').classList.remove('hidden');
+            document.getElementById('btnRanking').classList.add('active');
+            window.scrollTo(0, 0);
+            if (typeof this.renderRankingView === 'function') await this.renderRankingView();
         }
     }
 

@@ -661,6 +661,12 @@ const Aprendizados = (() => {
                         : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>`
                     }
                 </button>
+                <button class="aprend-toolbar-btn" id="aprendBtnCopyAll" title="Copiar tudo">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                </button>
                 <button class="aprend-toolbar-btn aprend-toolbar-btn-danger" id="aprendBtnDeleteNote" title="Apagar nota">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="3 6 5 6 21 6"/>
@@ -1018,6 +1024,11 @@ const Aprendizados = (() => {
             _toggleEditorMode();
         });
 
+        // Copiar todo o texto da nota
+        document.getElementById('aprendBtnCopyAll')?.addEventListener('click', () => {
+            _copyAllNoteText();
+        });
+
         // Apagar nota (com confirmação inline no botão)
         document.getElementById('aprendBtnDeleteNote')?.addEventListener('click', () => {
             _confirmDeleteNote();
@@ -1027,6 +1038,44 @@ const Aprendizados = (() => {
     // ─── Save — compatibilidade com código que chama _flushNote ──────
     function _scheduleNoteSave() { _syncLinesAndSave(); }
     function _flushNote()        { _syncLinesAndSave(); }
+
+    // ─── Copiar todo o texto da nota ─────────────────────────────────
+    function _copyAllNoteText() {
+        _syncLinesAndSave();
+        const note = getNote(nav.category, nav.itemId, nav.noteId);
+        if (!note || !note.content || !note.content.trim()) {
+            _showToast('Nota vazia — nada para copiar.', false);
+            return;
+        }
+
+        const textToCopy = note.content;
+
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                _showToast('✓ Texto copiado!', true, 2000);
+            }).catch(() => {
+                _copyFallback(textToCopy);
+            });
+        } else {
+            _copyFallback(textToCopy);
+        }
+    }
+
+    function _copyFallback(text) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            _showToast('✓ Texto copiado!', true, 2000);
+        } catch (e) {
+            _showToast('Não foi possível copiar.', false);
+        }
+    }
 
     // ─── Attachments ─────────────────────────────────────────────────
     async function _insertFile(file) {

@@ -87,6 +87,18 @@ window.addEventListener('load', async function checkAuth() {
 
             StorageManager.startRealtime(currentUser.id);
             StorageManager.startPolling(currentUser.id);
+
+            // Check onboarding after sync is complete
+            if (typeof app !== 'undefined' && typeof app._checkOnboarding === 'function') {
+                await app._checkOnboarding();
+            } else {
+                window._pendingOnboarding = true;
+            }
+
+            // Start Ranking Realtime subscription early (so updates are live even before opening ranking tab)
+            if (typeof app !== 'undefined' && typeof app._subscribeRankingRealtime === 'function') {
+                app._subscribeRankingRealtime();
+            }
         } else if (typeof StorageManager !== 'undefined') {
             StorageManager.syncReady = true;
         }
@@ -215,9 +227,15 @@ function getCurrentUserEmail() {
     return currentUser?.email;
 }
 
+// Obter objeto completo do usuário atual
+function getCurrentUser() {
+    return currentUser;
+}
+
 // Exportar funções para uso no app
 window.getCurrentUserId = getCurrentUserId;
 window.getCurrentUserEmail = getCurrentUserEmail;
+window.getCurrentUser = getCurrentUser;
 
 // Registrar Service Worker para habilitar instalação PWA
 if ('serviceWorker' in navigator) {

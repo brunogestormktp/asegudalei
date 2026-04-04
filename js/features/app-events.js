@@ -9,7 +9,24 @@ Object.assign(HabitTrackerApp.prototype, {
         document.getElementById('btnHistory').addEventListener('click', () => this.showView('history'));
         document.getElementById('btnReports').addEventListener('click', () => this.showView('reports'));
         document.getElementById('btnAprendizados').addEventListener('click', () => this.showView('aprendizados'));
+        document.getElementById('btnRanking').addEventListener('click', () => this.showView('ranking'));
         document.getElementById('btnSettings').addEventListener('click', () => this.showView('settings'));
+
+        // Onboarding listeners
+        document.getElementById('onboardingSubmit')?.addEventListener('click', () => {
+            if (typeof this._completeOnboarding === 'function') this._completeOnboarding();
+        });
+        document.getElementById('onboardingPhoto')?.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            const preview = document.getElementById('onboardingAvatarPreview');
+            if (!preview) return;
+            const url = URL.createObjectURL(file);
+            preview.style.backgroundImage = `url(${url})`;
+            preview.style.backgroundSize = 'cover';
+            preview.style.backgroundPosition = 'center';
+            preview.textContent = '';
+        });
 
         // Histórico → navegar para item no Hoje ao clicar na linha
         document.getElementById('historyContent').addEventListener('click', (e) => {

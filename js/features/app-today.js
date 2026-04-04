@@ -457,6 +457,11 @@ Object.assign(HabitTrackerApp.prototype, {
 
                 await this._propagateStatusToLinks(dateStr, category, item.id, newStatus);
 
+                // Trigger debounced ranking refresh so ranking updates in near-realtime
+                if (typeof this._debouncedRankingRefresh === 'function') {
+                    this._debouncedRankingRefresh();
+                }
+
                 const barEl = itemEl.querySelector('.item-week-bar');
                 if (barEl) {
                     const todayStr = this.getDateString(new Date());

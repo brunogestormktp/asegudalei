@@ -19,3 +19,4 @@ web-build/
 # Scripts temporários
 create-icons.sh
 create-icons.js
+supabase/.temp/
