@@ -995,5 +995,51 @@ const StorageManager = {
         // Obter URL pública
         const { data: urlData } = supabase.storage.from('note-images').getPublicUrl(name);
         return urlData?.publicUrl || null;
+    },
+
+    // ── Upload de arquivo (qualquer tipo) para bucket note-files ─────────────
+    // Path: {userId}/{noteId}/{attachId}_{safeName}
+    async uploadNoteFile(file, noteId, attachId) {
+        const supabase = this.getSupabase();
+        const userId   = this.getUserId();
+        if (!supabase || !userId) return null;
+
+        const safeName = file.name.replace(/[^a-zA-Z0-9._\-]/g, '_');
+        const path = `${userId}/${noteId}/${attachId}_${safeName}`;
+
+        const { error } = await supabase.storage
+            .from('note-files')
+            .upload(path, file, {
+                cacheControl: '3600',
+                upsert: false,
+                contentType: file.type || 'application/octet-stream',
+            });
+
+        if (error) {
+            console.error('❌ Erro ao fazer upload de arquivo:', error.message);
+            return null;
+        }
+
+        const { data: urlData } = supabase.storage.from('note-files').getPublicUrl(path);
+        return urlData?.publicUrl || null;
+    },
+
+    // ── Deletar arquivo do bucket note-files ─────────────────────────────────
+    async deleteNoteFile(publicUrl) {
+        const supabase = this.getSupabase();
+        if (!supabase || !publicUrl) return false;
+
+        const marker = '/storage/v1/object/public/note-files/';
+        const idx = publicUrl.indexOf(marker);
+        if (idx === -1) return false;
+
+        const path = decodeURIComponent(publicUrl.slice(idx + marker.length));
+        const { error } = await supabase.storage.from('note-files').remove([path]);
+
+        if (error) {
+            console.error('❌ Erro ao deletar arquivo do storage:', error.message);
+            return false;
+        }
+        return true;
     }
 };

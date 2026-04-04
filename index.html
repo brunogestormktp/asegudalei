@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.75, maximum-scale=0.75, minimum-scale=0.75, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-ancestors 'none';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https://*.supabase.co blob: data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net;">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()">
@@ -17,8 +17,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="auth-styles.css">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/auth-styles.css">
 </head>
 <body class="auth-body">
     <div class="auth-container">
@@ -84,38 +84,68 @@
                 <h2 class="form-title">Entrar</h2>
                 
                 <form id="loginForm">
-                    <div class="form-group">
-                        <label for="loginEmail">Email</label>
-                        <input 
-                            type="email" 
-                            id="loginEmail" 
-                            class="form-input" 
-                            placeholder="seu@email.com"
-                            required
-                            autocomplete="email"
-                        />
+                    <div id="loginFields">
+                        <div class="form-group">
+                            <label for="loginEmail">Email</label>
+                            <input 
+                                type="email" 
+                                id="loginEmail" 
+                                class="form-input" 
+                                placeholder="seu@email.com"
+                                required
+                                autocomplete="email"
+                            />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="loginPassword">Senha</label>
+                            <div class="password-wrapper">
+                                <input 
+                                    type="password" 
+                                    id="loginPassword" 
+                                    class="form-input" 
+                                    placeholder="••••••••"
+                                    required
+                                    autocomplete="current-password"
+                                    minlength="8"
+                                />
+                                <button type="button" class="btn-toggle-password" data-target="loginPassword" aria-label="Mostrar senha">
+                                    <svg class="icon-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                                    </svg>
+                                    <svg class="icon-eye-off hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="form-footer">
+                            <a href="#" id="forgotPassword" class="link-forgot">Esqueceu a senha?</a>
+                        </div>
+
+                        <button type="submit" class="btn-submit" id="loginSubmitBtn">
+                            Entrar
+                        </button>
                     </div>
 
-                    <div class="form-group">
-                        <label for="loginPassword">Senha</label>
-                        <input 
-                            type="password" 
-                            id="loginPassword" 
-                            class="form-input" 
-                            placeholder="••••••••"
-                            required
-                            autocomplete="current-password"
-                            minlength="6"
-                        />
+                    <!-- Seção inline de esqueci a senha -->
+                    <div id="forgotPasswordSection" class="hidden">
+                        <div class="form-group">
+                            <label for="forgotEmail">Seu email</label>
+                            <input 
+                                type="email" 
+                                id="forgotEmail" 
+                                class="form-input" 
+                                placeholder="seu@email.com"
+                                autocomplete="email"
+                            />
+                        </div>
+                        <button type="button" class="btn-submit" id="btnSendReset">Enviar link de recuperação</button>
+                        <div class="forgot-back-row">
+                            <a href="#" id="backToLogin" class="link-forgot">← Voltar para o login</a>
+                        </div>
                     </div>
-
-                    <div class="form-footer">
-                        <a href="#" id="forgotPassword" class="link-forgot">Esqueceu a senha?</a>
-                    </div>
-
-                    <button type="submit" class="btn-submit">
-                        Entrar
-                    </button>
                 </form>
 
                 <div class="form-switch">
@@ -154,28 +184,49 @@
 
                     <div class="form-group">
                         <label for="registerPassword">Senha</label>
-                        <input 
-                            type="password" 
-                            id="registerPassword" 
-                            class="form-input" 
-                            placeholder="Mínimo 6 caracteres"
-                            required
-                            autocomplete="new-password"
-                            minlength="6"
-                        />
+                        <div class="password-wrapper">
+                            <input 
+                                type="password" 
+                                id="registerPassword" 
+                                class="form-input" 
+                                placeholder="Mínimo 8 caracteres"
+                                required
+                                autocomplete="new-password"
+                                minlength="8"
+                            />
+                            <button type="button" class="btn-toggle-password" data-target="registerPassword" aria-label="Mostrar senha">
+                                <svg class="icon-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                <svg class="icon-eye-off hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="password-strength" id="passwordStrength"></div>
                     </div>
 
                     <div class="form-group">
                         <label for="registerConfirmPassword">Confirmar Senha</label>
-                        <input 
-                            type="password" 
-                            id="registerConfirmPassword" 
-                            class="form-input" 
-                            placeholder="Digite a senha novamente"
-                            required
-                            autocomplete="new-password"
-                            minlength="6"
-                        />
+                        <div class="password-wrapper">
+                            <input 
+                                type="password" 
+                                id="registerConfirmPassword" 
+                                class="form-input" 
+                                placeholder="Digite a senha novamente"
+                                required
+                                autocomplete="new-password"
+                                minlength="8"
+                            />
+                            <button type="button" class="btn-toggle-password" data-target="registerConfirmPassword" aria-label="Mostrar senha">
+                                <svg class="icon-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                <svg class="icon-eye-off hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
 
                     <button type="submit" class="btn-submit">
@@ -187,12 +238,65 @@
                     <p>Já tem uma conta? <a href="#" id="showSignIn" class="link-switch">Entrar</a></p>
                 </div>
             </div>
+
+            <!-- Formulário de Nova Senha (reset) -->
+            <div class="auth-form hidden" id="resetPasswordForm">
+                <h2 class="form-title">Nova Senha</h2>
+                <p class="reset-password-hint">Digite sua nova senha abaixo.</p>
+                <form id="newPasswordForm">
+                    <div class="form-group">
+                        <label for="newPassword">Nova Senha</label>
+                        <div class="password-wrapper">
+                            <input 
+                                type="password" 
+                                id="newPassword" 
+                                class="form-input" 
+                                placeholder="Mínimo 8 caracteres"
+                                required
+                                minlength="8"
+                                autocomplete="new-password"
+                            />
+                            <button type="button" class="btn-toggle-password" data-target="newPassword" aria-label="Mostrar senha">
+                                <svg class="icon-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                <svg class="icon-eye-off hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="confirmNewPassword">Confirmar Nova Senha</label>
+                        <div class="password-wrapper">
+                            <input 
+                                type="password" 
+                                id="confirmNewPassword" 
+                                class="form-input" 
+                                placeholder="Repita a nova senha"
+                                required
+                                minlength="8"
+                                autocomplete="new-password"
+                            />
+                            <button type="button" class="btn-toggle-password" data-target="confirmNewPassword" aria-label="Mostrar senha">
+                                <svg class="icon-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                <svg class="icon-eye-off hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-submit">Salvar Nova Senha</button>
+                </form>
+            </div>
         </div>
     </div>
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="config.js"></script>
-    <script src="login.js"></script>
+    <script src="js/core/config.js"></script>
+    <script src="js/auth/login.js"></script>
 </body>
 </html>

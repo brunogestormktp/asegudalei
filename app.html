@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=0.75, maximum-scale=0.75, minimum-scale=0.75, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-ancestors 'none';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; media-src 'self' https://*.supabase.co blob: data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net;">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta http-equiv="Permissions-Policy" content="camera=(self), microphone=(self), geolocation=()">
@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=20260329c">
+    <link rel="stylesheet" href="css/styles.css?v=20260329c">
 </head>
 <body>
     <div class="app">
@@ -274,10 +274,26 @@
                     </div>
                 </div>
 
-                <!-- Lightbox para imagens -->
-                <div class="aprend-lightbox hidden" id="aprendLightbox">
-                    <button class="aprend-lightbox-close" id="aprendLightboxClose">✕</button>
-                    <img id="aprendLightboxImg" src="" alt="" />
+                <!-- File Viewer Overlay -->
+                <div class="aprend-viewer hidden" id="aprendViewer">
+                    <div class="aprend-viewer-header">
+                        <div class="aprend-viewer-meta">
+                            <span class="aprend-viewer-filename" id="aprendViewerName"></span>
+                            <span class="aprend-viewer-info" id="aprendViewerInfo"></span>
+                        </div>
+                        <div class="aprend-viewer-header-actions">
+                            <a class="aprend-viewer-dl" id="aprendViewerDl" download title="Baixar">⬇</a>
+                            <button class="aprend-viewer-close" id="aprendViewerClose" title="Fechar (Esc)">✕</button>
+                        </div>
+                    </div>
+                    <div class="aprend-viewer-stage" id="aprendViewerStage"></div>
+                    <button class="aprend-viewer-nav aprend-viewer-prev hidden" id="aprendViewerPrev">‹</button>
+                    <button class="aprend-viewer-nav aprend-viewer-next hidden" id="aprendViewerNext">›</button>
+                    <div class="aprend-viewer-footer">
+                        <textarea class="aprend-viewer-notes" id="aprendViewerNotes"
+                            placeholder="Anotação sobre este arquivo…" rows="2"></textarea>
+                        <button class="aprend-viewer-notes-save" id="aprendViewerNotesSave">Salvar</button>
+                    </div>
                 </div>
             </div>
             <!-- Settings View -->
@@ -431,13 +447,13 @@
         <div class="aprend-popup-content">
             <div class="aprend-popup-icon">🧠</div>
             <h3 class="aprend-popup-title">Qual foi o aprendizado?</h3>
-            <p class="aprend-popup-subtitle">Mínimo 10 caracteres</p>
+            <p class="aprend-popup-subtitle">Use # para título, ## para subtítulo</p>
             <div class="aprend-popup-input-wrap">
-                <input type="text" id="aprendizadoInput" class="aprend-popup-input" placeholder="Ex: Comunicar bloqueios antes que virem problemas" autocomplete="off" />
-                <span class="aprend-popup-wordcount"><span id="aprendizadoWordCount">0</span>/10</span>
+                <textarea id="aprendizadoInput" class="aprend-popup-input" placeholder="Ex: Comunicar bloqueios antes que virem problemas" rows="4"></textarea>
             </div>
             <div class="aprend-popup-actions">
                 <button class="aprend-popup-btn-save" id="btnAprendSave">✓ Salvar</button>
+                <button class="aprend-popup-btn-addnote" id="btnAprendAddNote">+ Criar nota</button>
                 <button class="aprend-popup-btn-skip" id="btnAprendSkip">Pular</button>
             </div>
         </div>
@@ -445,12 +461,23 @@
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="config.js"></script>
-    <script src="data.js"></script>
-    <script src="storage.js"></script>
-    <script src="app-auth.js"></script>
-    <script src="aprendizados.js"></script>
-    <script src="app.js"></script>
+    <script src="js/core/config.js"></script>
+    <script src="js/core/data.js"></script>
+    <script src="js/storage/storage.js"></script>
+    <script src="js/auth/app-auth.js"></script>
+    <script src="js/aprendizados/aprendizados.js"></script>
+    <!-- Core: classe + lifecycle + navegação -->
+    <script src="js/core/app.js"></script>
+    <!-- Mixins: estendem HabitTrackerApp.prototype -->
+    <script src="js/features/app-modals.js"></script>
+    <script src="js/features/app-edit.js"></script>
+    <script src="js/features/app-speech.js"></script>
+    <script src="js/features/app-settings.js"></script>
+    <script src="js/features/app-history.js"></script>
+    <script src="js/features/app-week-bar.js"></script>
+    <script src="js/features/app-today.js"></script>
+    <script src="js/features/app-events.js"></script>
+    <script src="js/features/app-reports.js"></script>
     <script async src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </body>
 </html>

@@ -108,6 +108,9 @@ const Aprendizados = (() => {
     function escHtml(s) {
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
+    function escAttr(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
     function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
     function highlight(text, term) {
         if (!term) return escHtml(text);
@@ -351,6 +354,12 @@ const Aprendizados = (() => {
         return clone.textContent;
     }
     function setPlainText(el, text) { el.textContent = text; }
+
+    // Remove linhas em branco/vazias de um texto — mantém apenas linhas com conteúdo
+    function _stripBlankLines(text) {
+        if (!text) return '';
+        return text.split('\n').filter(l => l.trim() !== '').join('\n');
+    }
 
     // ─── RENDER: Nível 1 — Pastas ────────────────────────────────────
     function renderFolders() {
@@ -596,6 +605,7 @@ const Aprendizados = (() => {
 
     // ─── RENDER: Editor ───────────────────────────────────────────────
     function renderEditor() {
+        _closeViewer(); // fecha viewer ao trocar de nota
         const panel = document.getElementById('aprendEditorPanel');
         if (!panel) return;
 
@@ -669,7 +679,7 @@ const Aprendizados = (() => {
                     <span>Solte aqui para inserir</span>
                 </div>
                 <div id="aprendLineRows" class="aprend-line-rows"></div>
-                <div id="aprendAttachments" class="aprend-attachments-list"></div>
+                <div id="aprendAttachments"></div>
             </div>
 
             <input type="file" id="aprendFileInput" accept="*/*" multiple style="display:none" />
@@ -721,10 +731,12 @@ const Aprendizados = (() => {
         if (!container) return;
         container.innerHTML = '';
 
-        const lines = (note.content || '').split('\n');
+        // Filtrar linhas em branco — cada linha visível ocupa uma row
+        const rawLines = (note.content || '').split('\n');
+        const lines = rawLines.filter(l => l.trim() !== '');
         // garante ao menos 1 linha vazia
-        if (lines.length === 0 || (lines.length === 1 && lines[0] === '')) {
-            lines[0] = '';
+        if (lines.length === 0) {
+            lines.push('');
         }
 
         lines.forEach((lineText, idx) => {
@@ -798,9 +810,11 @@ const Aprendizados = (() => {
         textEl.addEventListener('paste', (e) => {
             e.preventDefault();
             const text = e.clipboardData.getData('text/plain');
-            const pasteLines = text.split('\n');
+            // Filtrar linhas em branco do texto colado
+            const pasteLines = text.split('\n').filter(l => l.trim() !== '');
+            if (pasteLines.length === 0) return;
             if (pasteLines.length === 1) {
-                document.execCommand('insertText', false, text);
+                document.execCommand('insertText', false, pasteLines[0]);
                 return;
             }
             // Multiplas linhas: inserir cada uma como linha nova
@@ -858,13 +872,18 @@ const Aprendizados = (() => {
         const rows = Array.from(document.querySelectorAll('#aprendLineRows .aprend-line-row'));
         const lines = rows.map(r => getPlainText(r.querySelector('.aprend-line-text') || r).replace(/\n/g, ''));
 
-        // Reindexar checkedLines: checked rows mantêm estado
+        // Reindexar checkedLines: mapear row original → índice filtrado (sem linhas em branco)
         const newChecked = {};
+        let filteredIdx = 0;
+        const filteredLines = [];
         rows.forEach((r, i) => {
-            if (r.classList.contains('checked')) newChecked[i] = true;
+            if (lines[i].trim() === '') return; // pula linhas vazias
+            filteredLines.push(lines[i]);
+            if (r.classList.contains('checked')) newChecked[filteredIdx] = true;
+            filteredIdx++;
         });
 
-        note.content = lines.join('\n');
+        note.content = filteredLines.join('\n');
         note.checkedLines = newChecked;
         note.updatedAt = nowISO();
         if (!note.title) note.title = _titleFromContent(note.content);
@@ -1003,10 +1022,6 @@ const Aprendizados = (() => {
         document.getElementById('aprendBtnDeleteNote')?.addEventListener('click', () => {
             _confirmDeleteNote();
         });
-
-        // Lightbox
-        document.getElementById('aprendLightboxClose')?.addEventListener('click', () =>
-            document.getElementById('aprendLightbox')?.classList.add('hidden'));
     }
 
     // ─── Save — compatibilidade com código que chama _flushNote ──────
@@ -1014,83 +1029,323 @@ const Aprendizados = (() => {
     function _flushNote()        { _syncLinesAndSave(); }
 
     // ─── Attachments ─────────────────────────────────────────────────
-    function _insertFile(file) {
-        const MAX_WARN = 500 * 1024;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            const attach = {
-                id: uuid(),
-                type: file.type.startsWith('image/') ? 'image'
-                    : file.type.startsWith('video/') ? 'video'
-                    : file.type === 'application/pdf' ? 'pdf' : 'file',
-                name: file.name,
-                size: file.size,
-                data: ev.target.result,
-                createdAt: nowISO(),
-            };
-            const fresh = getNote(nav.category, nav.itemId, nav.noteId);
-            if (!fresh) return;
-            if (!fresh.attachments) fresh.attachments = [];
-            fresh.attachments.push(attach);
-            fresh.updatedAt = nowISO();
-            saveNote(nav.category, nav.itemId, fresh);
-            _renderAttachments(fresh);
-            if (file.size > MAX_WARN) {
-                const wEl = document.getElementById(`awarn-${attach.id}`);
-                if (wEl) wEl.innerHTML = `<div class="aprend-attach-warn">⚠️ Arquivo grande — pode afetar sincronização</div>`;
-            }
+    async function _insertFile(file) {
+        const attachType = file.type.startsWith('image/') ? 'image'
+            : file.type.startsWith('video/') ? 'video'
+            : file.type === 'application/pdf' ? 'pdf' : 'file';
+
+        const attachId = uuid();
+        const attach = {
+            id:        attachId,
+            type:      attachType,
+            name:      file.name,
+            size:      file.size,
+            status:    'uploading',
+            createdAt: nowISO(),
         };
-        reader.readAsDataURL(file);
+
+        // Inserir imediatamente com skeleton de loading
+        const fresh = getNote(nav.category, nav.itemId, nav.noteId);
+        if (!fresh) return;
+        if (!fresh.attachments) fresh.attachments = [];
+        fresh.attachments.push(attach);
+        fresh.updatedAt = nowISO();
+        saveNote(nav.category, nav.itemId, fresh);
+        _renderAttachments(fresh);
+
+        // Upload para Supabase Storage
+        let publicUrl = null;
+        if (typeof StorageManager !== 'undefined') {
+            publicUrl = await StorageManager.uploadNoteFile(file, nav.noteId, attachId);
+        }
+
+        // Re-ler nota após await (pode ter sido editada)
+        const note = getNote(nav.category, nav.itemId, nav.noteId);
+        if (!note) return;
+        const idx = (note.attachments || []).findIndex(a => a.id === attachId);
+        if (idx === -1) return; // deletado durante upload
+
+        if (publicUrl) {
+            note.attachments[idx] = { ...note.attachments[idx], url: publicUrl };
+            delete note.attachments[idx].status;
+        } else {
+            // Fallback: base64 (offline ou erro)
+            await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const n2 = getNote(nav.category, nav.itemId, nav.noteId);
+                    if (!n2) { resolve(); return; }
+                    const i2 = (n2.attachments || []).findIndex(a => a.id === attachId);
+                    if (i2 === -1) { resolve(); return; }
+                    n2.attachments[i2] = { ...n2.attachments[i2], data: ev.target.result };
+                    delete n2.attachments[i2].status;
+                    n2.updatedAt = nowISO();
+                    saveNote(nav.category, nav.itemId, n2);
+                    _renderAttachments(n2);
+                    resolve();
+                };
+                reader.onerror = () => resolve();
+                reader.readAsDataURL(file);
+            });
+            return; // saveNote + render já chamados
+        }
+
+        note.updatedAt = nowISO();
+        saveNote(nav.category, nav.itemId, note);
+        _renderAttachments(note);
     }
 
+    // ─── Viewer State ────────────────────────────────────────────────
+    const _viewer = {
+        open: false,
+        attachments: [],
+        index: 0,
+        noteCtx: null,   // { category, itemId, noteId }
+        notesDirty: false
+    };
+
+    function _openViewer(attachments, index, noteCtx) {
+        _viewer.open = true;
+        _viewer.attachments = attachments;
+        _viewer.index = index;
+        _viewer.noteCtx = noteCtx;
+        _viewer.notesDirty = false;
+
+        const el = document.getElementById('aprendViewer');
+        if (!el) return;
+        el.classList.remove('hidden');
+        document.addEventListener('keydown', _viewerKeyHandler);
+        _renderViewerSlide(_viewer.index);
+    }
+
+    function _closeViewer() {
+        if (!_viewer.open) return;
+        // Pause any playing video
+        const stage = document.getElementById('aprendViewerStage');
+        if (stage) {
+            const vid = stage.querySelector('video');
+            if (vid) { vid.pause(); vid.src = ''; }
+        }
+        // Save dirty note
+        if (_viewer.notesDirty) _saveViewerNote();
+
+        _viewer.open = false;
+        _viewer.attachments = [];
+        _viewer.noteCtx = null;
+        _viewer.notesDirty = false;
+
+        const el = document.getElementById('aprendViewer');
+        if (el) el.classList.add('hidden');
+        document.removeEventListener('keydown', _viewerKeyHandler);
+    }
+
+    function _renderViewerSlide(index) {
+        const a = _viewer.attachments[index];
+        if (!a) return;
+        _viewer.index = index;
+
+        const src = a.url || a.data || '';
+        const sizeStr = a.size > 1024 * 1024
+            ? `${(a.size / 1024 / 1024).toFixed(1)} MB`
+            : `${Math.round(a.size / 1024)} KB`;
+        const dateStr = a.createdAt
+            ? new Date(a.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+            : '';
+
+        // Header
+        const nameEl = document.getElementById('aprendViewerName');
+        const infoEl = document.getElementById('aprendViewerInfo');
+        if (nameEl) nameEl.textContent = a.name || 'Arquivo';
+        if (infoEl) infoEl.textContent = [sizeStr, dateStr].filter(Boolean).join(' · ');
+
+        // Download link
+        const dlEl = document.getElementById('aprendViewerDl');
+        if (dlEl) {
+            dlEl.href = src;
+            dlEl.download = a.name || 'arquivo';
+        }
+
+        // Navigation arrows
+        const prevBtn = document.getElementById('aprendViewerPrev');
+        const nextBtn = document.getElementById('aprendViewerNext');
+        if (prevBtn) prevBtn.classList.toggle('hidden', index === 0);
+        if (nextBtn) nextBtn.classList.toggle('hidden', index >= _viewer.attachments.length - 1);
+
+        // Stage content
+        const stage = document.getElementById('aprendViewerStage');
+        if (!stage) return;
+        // Pause previous video if any
+        const prevVid = stage.querySelector('video');
+        if (prevVid) { prevVid.pause(); prevVid.src = ''; }
+
+        if (a.type === 'image') {
+            stage.innerHTML = `<img src="${escAttr(src)}" alt="${escAttr(a.name)}" />`;
+            const img = stage.querySelector('img');
+            if (img) {
+                img.addEventListener('dblclick', () => img.classList.toggle('aprend-viewer-zoomed'));
+                img.addEventListener('click', (e) => {
+                    if (img.classList.contains('aprend-viewer-zoomed')) {
+                        e.stopPropagation();
+                        img.classList.remove('aprend-viewer-zoomed');
+                    }
+                });
+            }
+        } else if (a.type === 'video') {
+            stage.innerHTML = `<video src="${escAttr(src)}" controls autoplay></video>`;
+        } else if (a.type === 'pdf') {
+            stage.innerHTML = `<iframe src="${escAttr(src)}"></iframe>`;
+        } else {
+            const icon = '📎';
+            stage.innerHTML = `
+                <div class="aprend-viewer-stage-generic">
+                    <span class="aprend-viewer-stage-generic-icon">${icon}</span>
+                    <span class="aprend-viewer-stage-generic-name">${escHtml(a.name)}</span>
+                    <a href="${escAttr(src)}" download="${escAttr(a.name)}">⬇ Baixar arquivo</a>
+                </div>`;
+        }
+
+        // Notes textarea
+        const notesEl = document.getElementById('aprendViewerNotes');
+        if (notesEl) {
+            notesEl.value = a.notes || '';
+            _viewer.notesDirty = false;
+        }
+    }
+
+    function _viewerNavigate(dir) {
+        // Save current note if dirty before navigating
+        if (_viewer.notesDirty) _saveViewerNote();
+
+        const newIdx = _viewer.index + dir;
+        if (newIdx < 0 || newIdx >= _viewer.attachments.length) return;
+        _renderViewerSlide(newIdx);
+    }
+
+    function _saveViewerNote() {
+        const notesEl = document.getElementById('aprendViewerNotes');
+        if (!notesEl || !_viewer.noteCtx) return;
+
+        const a = _viewer.attachments[_viewer.index];
+        if (!a) return;
+
+        const newNotes = notesEl.value;
+        a.notes = newNotes;
+        _viewer.notesDirty = false;
+
+        // Persist to storage
+        const { category, itemId, noteId } = _viewer.noteCtx;
+        const note = getNote(category, itemId, noteId);
+        if (!note) return;
+        const idx = (note.attachments || []).findIndex(att => att.id === a.id);
+        if (idx === -1) return;
+        note.attachments[idx].notes = newNotes;
+        note.updatedAt = nowISO();
+        saveNote(category, itemId, note);
+    }
+
+    function _viewerKeyHandler(e) {
+        if (!_viewer.open) return;
+        // Don't capture keys when typing in textarea
+        if (e.target.tagName === 'TEXTAREA') {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                _closeViewer();
+            }
+            return;
+        }
+        if (e.key === 'Escape') { e.preventDefault(); _closeViewer(); }
+        else if (e.key === 'ArrowLeft')  { e.preventDefault(); _viewerNavigate(-1); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); _viewerNavigate(+1); }
+    }
+
+    // ─── Attachments — Gallery Strip ─────────────────────────────────
     function _renderAttachments(note) {
         const el = document.getElementById('aprendAttachments');
         if (!el) return;
         const attachments = note.attachments || [];
         if (attachments.length === 0) { el.innerHTML = ''; return; }
 
-        el.innerHTML = attachments.map(a => {
-            const sizeStr = a.size > 1024*1024
-                ? `${(a.size/1024/1024).toFixed(1)}MB`
-                : `${Math.round(a.size/1024)}KB`;
+        // Count visible (non-uploading) files
+        const visibleCount = attachments.filter(a => a.status !== 'uploading').length;
+        const totalCount = attachments.length;
+        const badgeText = totalCount === 1 ? '1 arquivo' : `${totalCount} arquivos`;
+
+        let html = `<div class="aprend-gallery-badge">${badgeText}</div>`;
+        html += '<div class="aprend-gallery-strip">';
+
+        html += attachments.map((a, idx) => {
+            const isUploading = a.status === 'uploading';
+            const uploadingCls = isUploading ? ' aprend-gallery-uploading' : '';
+            const src = escAttr(a.url || a.data || '');
+            const safeName = escAttr(a.name || '');
+
+            if (isUploading) {
+                const icon = a.type === 'image' ? '🖼️'
+                    : a.type === 'video' ? '🎬'
+                    : a.type === 'pdf' ? '📄' : '📎';
+                return `
+                <div class="aprend-gallery-tile${uploadingCls}">
+                    <div class="aprend-gallery-tile-file">
+                        <span class="aprend-gallery-tile-file-icon">${icon}</span>
+                        <span class="aprend-gallery-tile-file-name">enviando…</span>
+                    </div>
+                </div>`;
+            }
+
             if (a.type === 'image') return `
-                <div class="aprend-attach-img-wrap">
-                    <img src="${a.data}" class="aprend-attach-img" alt="${escHtml(a.name)}" />
-                    <button class="aprend-attach-del" data-attach-id="${a.id}" title="Remover">✕</button>
-                    <div id="awarn-${a.id}"></div>
+                <div class="aprend-gallery-tile" data-idx="${idx}">
+                    <img src="${src}" alt="${safeName}" loading="lazy" />
+                    <button class="aprend-gallery-del" data-attach-id="${a.id}" data-attach-url="${escAttr(a.url || '')}" title="Remover">✕</button>
                 </div>`;
+
             if (a.type === 'video') return `
-                <div class="aprend-attach-video-wrap">
-                    <video src="${a.data}" controls class="aprend-attach-video"></video>
-                    <button class="aprend-attach-del" data-attach-id="${a.id}" title="Remover">✕</button>
-                    <div id="awarn-${a.id}"></div>
+                <div class="aprend-gallery-tile" data-idx="${idx}">
+                    <video src="${src}" preload="metadata" muted></video>
+                    <div class="aprend-gallery-tile-play">▶</div>
+                    <button class="aprend-gallery-del" data-attach-id="${a.id}" data-attach-url="${escAttr(a.url || '')}" title="Remover">✕</button>
                 </div>`;
+
             const icon = a.type === 'pdf' ? '📄' : '📎';
             return `
-            <div class="aprend-attach-file">
-                <span class="aprend-attach-file-icon">${icon}</span>
-                <div class="aprend-attach-file-info">
-                    <span class="aprend-attach-file-name">${escHtml(a.name)}</span>
-                    <span class="aprend-attach-file-size">${sizeStr}</span>
+            <div class="aprend-gallery-tile" data-idx="${idx}">
+                <div class="aprend-gallery-tile-file">
+                    <span class="aprend-gallery-tile-file-icon">${icon}</span>
+                    <span class="aprend-gallery-tile-file-name">${escHtml(a.name)}</span>
                 </div>
-                <a href="${a.data}" download="${escHtml(a.name)}" class="aprend-attach-dl">⬇</a>
-                <button class="aprend-attach-del" data-attach-id="${a.id}" title="Remover">✕</button>
-                <div id="awarn-${a.id}"></div>
+                <button class="aprend-gallery-del" data-attach-id="${a.id}" data-attach-url="${escAttr(a.url || '')}" title="Remover">✕</button>
             </div>`;
         }).join('');
 
-        // Lightbox
-        el.querySelectorAll('.aprend-attach-img').forEach(img => {
-            img.addEventListener('click', () => {
-                const lb = document.getElementById('aprendLightbox');
-                const lbImg = document.getElementById('aprendLightboxImg');
-                if (lb && lbImg) { lbImg.src = img.src; lb.classList.remove('hidden'); }
+        html += '</div>';
+        el.innerHTML = html;
+
+        // Open viewer on tile click
+        el.querySelectorAll('.aprend-gallery-tile[data-idx]').forEach(tile => {
+            tile.addEventListener('click', (e) => {
+                if (e.target.closest('.aprend-gallery-del')) return;
+                const idx = parseInt(tile.dataset.idx, 10);
+                // Only open viewer for non-uploading attachments
+                const visibleAttachments = attachments.filter(a => a.status !== 'uploading');
+                // Map idx to the correct position in filtered list
+                const a = attachments[idx];
+                if (!a || a.status === 'uploading') return;
+                const visIdx = visibleAttachments.indexOf(a);
+                _openViewer(visibleAttachments, visIdx >= 0 ? visIdx : 0, {
+                    category: nav.category,
+                    itemId: nav.itemId,
+                    noteId: nav.noteId
+                });
             });
         });
 
-        // Remover
-        el.querySelectorAll('.aprend-attach-del').forEach(btn => {
-            btn.addEventListener('click', () => {
+        // Delete buttons
+        el.querySelectorAll('.aprend-gallery-del').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const attachUrl = btn.dataset.attachUrl;
+                if (attachUrl && typeof StorageManager !== 'undefined') {
+                    await StorageManager.deleteNoteFile(attachUrl);
+                }
                 const fresh = getNote(nav.category, nav.itemId, nav.noteId);
                 if (!fresh) return;
                 fresh.attachments = (fresh.attachments || []).filter(a => a.id !== btn.dataset.attachId);
@@ -1359,6 +1614,21 @@ const Aprendizados = (() => {
         // Registrar event listeners (apenas uma vez)
         document.getElementById('aprendSearch')?.addEventListener('input', (e) => renderSearch(e.target.value));
 
+        // ── Viewer events (bound once) ──
+        document.getElementById('aprendViewerClose')?.addEventListener('click', () => _closeViewer());
+        document.getElementById('aprendViewerPrev')?.addEventListener('click', () => _viewerNavigate(-1));
+        document.getElementById('aprendViewerNext')?.addEventListener('click', () => _viewerNavigate(+1));
+        document.getElementById('aprendViewerNotesSave')?.addEventListener('click', () => {
+            _saveViewerNote();
+            const saveBtn = document.getElementById('aprendViewerNotesSave');
+            if (saveBtn) { saveBtn.textContent = '✓ Salvo'; setTimeout(() => { saveBtn.textContent = 'Salvar'; }, 1200); }
+        });
+        document.getElementById('aprendViewerNotes')?.addEventListener('input', () => { _viewer.notesDirty = true; });
+        // Close viewer on backdrop click (stage area)
+        document.getElementById('aprendViewerStage')?.addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) _closeViewer();
+        });
+
         document.getElementById('aprendBtnNewNote')?.addEventListener('click', () => {
             if (!nav.category || !nav.itemId) return;
             _flushNote();
@@ -1499,6 +1769,7 @@ const Aprendizados = (() => {
         renderFolders();
         renderSubfolders();
         renderNotesList();
+        renderEditor();   // limpa o painel do editor (noteId=null → estado vazio)
         navigateTo('notes');
     }
 
@@ -1523,6 +1794,8 @@ const Aprendizados = (() => {
     // Cria a nota na primeira vez; adiciona ao final nas chamadas seguintes
     function addToFixedNote(category, itemId, type, text) {
         if (!text || !text.trim()) return;
+        // Remover linhas em branco — sempre uma linha abaixo da outra
+        text = _stripBlankLines(text);
 
         const TITLES = {
             concluido:    '✅ Concluídos',
@@ -1562,6 +1835,39 @@ const Aprendizados = (() => {
         }
     }
 
-    return { init, onShow, onHide, setLineChecked, addQuickEntry, addToFixedNote, openItem, refreshFromRemote };
+    // createNoteFromText — API pública: cria uma nota nova avulsa a partir do texto do modal
+    // Primeira linha não vazia = título (strip # / ## prefix); restante = conteúdo
+    function createNoteFromText(category, itemId, text) {
+        if (!text || !text.trim()) return null;
+        // Remover linhas em branco — sempre uma linha abaixo da outra
+        const lines = _stripBlankLines(text).split('\n');
+        let title = '';
+        let contentStart = 0;
+        for (let i = 0; i < lines.length; i++) {
+            const l = lines[i].trim();
+            if (l) {
+                title = l.replace(/^#{1,2}\s*/, '');
+                contentStart = i + 1;
+                break;
+            }
+        }
+        const content = lines.slice(contentStart).join('\n').trim();
+        const note = {
+            id: uuid(),
+            title: title || '🧠 Aprendizado',
+            content: content || _stripBlankLines(text),
+            type: 'aprendizado',
+            checkedLines: {},
+            attachments: [],
+            createdAt: nowISO(),
+            updatedAt: nowISO(),
+        };
+        saveNote(category, itemId, note);
+        // Navegar para o item (a aba já será mostrada pelo caller)
+        openItem(category, itemId);
+        return note;
+    }
+
+    return { init, onShow, onHide, setLineChecked, addQuickEntry, addToFixedNote, createNoteFromText, openItem, refreshFromRemote };
 })();
 

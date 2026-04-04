@@ -3,4 +3,11 @@
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener('fetch', (e) => e.respondWith(fetch(e.request)));
+self.addEventListener('fetch', (e) => {
+    e.respondWith(
+        fetch(e.request).catch(() => {
+            // Offline ou erro de rede — retorna resposta vazia para não rejeitar a promise
+            return new Response('', { status: 503, statusText: 'Service Unavailable' });
+        })
+    );
+});
