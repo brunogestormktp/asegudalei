@@ -695,6 +695,8 @@ Object.assign(HabitTrackerApp.prototype, {
                     const noteId = 'ai_' + Date.now();
                     item.notes.push({ id: noteId, title, content, checkedLines: {}, updatedAt: new Date().toISOString() });
                     await StorageManager.saveAprendizados(aprendData);
+                    // Sincronizar com o localStorage do módulo Aprendizados
+                    try { localStorage.setItem('aprendizadosData', JSON.stringify(aprendData)); } catch {}
                     const catItems = (typeof APP_DATA !== 'undefined' && APP_DATA[category]) || [];
                     const itemName = catItems.find(it => it.id === itemId)?.name || itemId;
                     aprendizados.push({ itemName, title });
@@ -1260,6 +1262,8 @@ Object.assign(HabitTrackerApp.prototype, {
                 const noteId = 'ai_' + Date.now();
                 item.notes.push({ id: noteId, title, content: clean, checkedLines: {}, updatedAt: new Date().toISOString() });
                 await StorageManager.saveAprendizados(aprendData);
+                // Sincronizar com o localStorage do módulo Aprendizados
+                try { localStorage.setItem('aprendizadosData', JSON.stringify(aprendData)); } catch {}
                 this._aiAprendizadosDirty = true;
                 this._appendActionFeedback('aprendizado',
                     `📚 Aprendizado salvo em **${itemName}**: "${title}"`
