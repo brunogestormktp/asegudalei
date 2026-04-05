@@ -464,6 +464,23 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
     }
   }
 
+  // ── Item em foco (usuario clicou no 🤖 de um item especifico) ─────────
+  // Aprendizados desse item enviados silenciosamente pelo frontend — USE para dar
+  // resposta personalizada e sugerir acoes PENDENTES (nao sugira o que ja foi concluido).
+  const focusedItem = (hint as any)?.focusedItemAprend || null;
+  if (focusedItem && typeof focusedItem === 'object') {
+    L.push('\n=== 🎯 ITEM EM FOCO — o usuario CLICOU neste item para pedir ajuda ===');
+    L.push(`  Item: "${focusedItem.itemName}" (category="${focusedItem.category}", id="${focusedItem.itemId}")`);
+    L.push('  INSTRUCAO: Baseie sua resposta nos aprendizados abaixo. Sugira acoes sobre itens PENDENTES. NAO sugira o que ja foi concluido.');
+    if (Array.isArray(focusedItem.notes) && focusedItem.notes.length > 0) {
+      L.push('  Aprendizados registrados:');
+      focusedItem.notes.forEach((n: string) => L.push('    - ' + n));
+    } else {
+      L.push('  (Sem aprendizados registrados — use sua inteligencia para sugerir acoes com base nos dados da semana)');
+    }
+    L.push('  Ao final da resposta, PERGUNTE se houve aprendizado para registrar.');
+  }
+
   // ── Feature 5: Estatísticas computadas de allData ────────────────────
   try {
     let totalCompleted = 0;

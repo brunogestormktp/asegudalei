@@ -582,6 +582,44 @@ Object.assign(HabitTrackerApp.prototype, {
                 }
             } catch (e) { console.warn('AI context: failed to read local data', e); }
 
+            // ── Item em foco (clicou no 🤖): enviar aprendizados desse item silenciosamente ──
+            let focusedItemAprend = null;
+            if (this._aiItemFocus) {
+                try {
+                    const aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
+                    const f = this._aiItemFocus;
+                    const itemAprend = aprendData[f.category]?.[f.itemId];
+                    if (itemAprend) {
+                        const notes = Array.isArray(itemAprend.notes) ? itemAprend.notes : [];
+                        const validNotes = notes.filter(n => !n.deleted && n.content && n.content.trim());
+                        if (validNotes.length > 0) {
+                            const entries = [];
+                            for (const n of validNotes.slice(0, 10)) {
+                                const checked = n.checkedLines || {};
+                                const noteLines = n.content.split('\n').filter(l => l.trim());
+                                const pending = [], done = [];
+                                noteLines.forEach((line, idx) => {
+                                    if (checked[String(idx)]) done.push(line.trim());
+                                    else pending.push(line.trim());
+                                });
+                                let entry = (n.title || 'sem título');
+                                if (pending.length) entry += ' | Pendente: ' + pending.join('; ');
+                                if (done.length) entry += ' | Concluído: ' + done.join('; ');
+                                entries.push(entry);
+                            }
+                            focusedItemAprend = {
+                                category: f.category,
+                                itemId: f.itemId,
+                                itemName: f.itemName,
+                                notes: entries,
+                            };
+                        }
+                    }
+                } catch {}
+                // Limpar foco após uso (single-shot)
+                this._aiItemFocus = null;
+            }
+
             return {
                 today: todayStr,
                 activeItems,
@@ -592,6 +630,7 @@ Object.assign(HabitTrackerApp.prototype, {
                 daysLeftInWeek,
                 todayData,
                 recentData,
+                focusedItemAprend,
             };
         } catch {
             return { today: this.getDateString() };
@@ -1403,67 +1442,16 @@ Object.assign(HabitTrackerApp.prototype, {
             'prioridade': 'prioridade', 'none': 'sem status',
         }[status] || 'sem status';
 
+        // Guardar foco no item para _buildAIContext enviar os aprendizados silenciosamente
+        this._aiItemFocus = { category, itemId, itemName };
+
         let msg = '';
-
         if (noteText && noteText.trim()) {
-            // ── COM NOTA: ajudar a entender/resolver o que está na nota ──
-            msg = `Estou trabalhando na demanda "${itemName}" (status: ${statusLabel}). `
-                + `A nota de hoje diz:\n\n"${noteText.trim()}"\n\n`
-                + `Me ajuda a entender e resolver isso. O que devo fazer agora? `
-                + `Depois me pergunta se houve algum aprendizado para registrar.`;
+            msg = `"${itemName}" (${statusLabel}) — nota de hoje:\n\n"${noteText.trim()}"\n\nMe ajuda a resolver isso.`;
         } else {
-            // ── SEM NOTA: buscar aprendizados para dar contexto ──────────
-            let aprendContext = '';
-            try {
-                const aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
-                const itemAprend = aprendData[category]?.[itemId];
-                if (itemAprend) {
-                    const notes = Array.isArray(itemAprend.notes) ? itemAprend.notes : [];
-                    const validNotes = notes.filter(n => !n.deleted && n.content && n.content.trim());
-                    if (validNotes.length > 0) {
-                        const lines = [];
-                        for (const n of validNotes.slice(0, 10)) {
-                            const checked = n.checkedLines || {};
-                            const noteLines = n.content.split('\n').filter(l => l.trim());
-                            const pending = [];
-                            const done = [];
-                            noteLines.forEach((line, idx) => {
-                                if (checked[String(idx)]) {
-                                    done.push(line.trim());
-                                } else {
-                                    pending.push(line.trim());
-                                }
-                            });
-                            let entry = `📝 "${n.title || 'sem título'}"`;
-                            if (pending.length > 0) entry += `\n  ⬜ Pendente: ${pending.join('; ')}`;
-                            if (done.length > 0) entry += `\n  ✅ Concluído: ${done.join('; ')}`;
-                            lines.push(entry);
-                        }
-                        aprendContext = lines.join('\n');
-                    }
-                }
-            } catch {}
-
-            if (aprendContext) {
-                // ── TEM APRENDIZADOS: sugerir ações baseadas no que falta ──
-                msg = `Analisa a demanda "${itemName}" (status: ${statusLabel}). `
-                    + `Não tem nota hoje, mas tem estes aprendizados registrados:\n\n${aprendContext}\n\n`
-                    + `Com base no que está PENDENTE (⬜), sugira o que eu devo fazer HOJE nessa demanda. `
-                    + `NÃO sugira o que já foi concluído (✅). `
-                    + `Me dê um plano de ação concreto para avançar hoje. `
-                    + `Depois me pergunta se houve algum aprendizado para registrar.`;
-            } else {
-                // ── SEM APRENDIZADOS E SEM NOTA: IA sugere livremente ──────
-                msg = `Analisa a demanda "${itemName}" (status: ${statusLabel}). `
-                    + `Não tem nota de hoje e nem aprendizados registrados para essa demanda. `
-                    + `Com base no que você sabe da minha semana e dos meus dados, `
-                    + `sugira o que eu posso fazer HOJE para avançar nessa demanda. `
-                    + `Me dê sugestões concretas e um plano de ação. `
-                    + `Depois me pergunta se houve algum aprendizado para registrar.`;
-            }
+            msg = `O que devo fazer hoje em "${itemName}"? (${statusLabel})`;
         }
 
-        // Auto-enviar a mensagem
         setTimeout(() => {
             this.sendAIMessage(msg);
         }, 200);
