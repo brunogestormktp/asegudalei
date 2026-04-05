@@ -1395,8 +1395,6 @@ Object.assign(HabitTrackerApp.prototype, {
     _aiOpenWithItem(category, itemId, itemName, noteText, status) {
         this.showView('ai');
 
-        // Construir mensagem contextual com a nota do item
-        let msg = '';
         const statusLabel = {
             'concluido': 'concluído', 'concluido-ongoing': 'concluído',
             'em-andamento': 'em andamento', 'bloqueado': 'bloqueado',
@@ -1405,18 +1403,67 @@ Object.assign(HabitTrackerApp.prototype, {
             'prioridade': 'prioridade', 'none': 'sem status',
         }[status] || 'sem status';
 
+        let msg = '';
+
         if (noteText && noteText.trim()) {
+            // ── COM NOTA: ajudar a entender/resolver o que está na nota ──
             msg = `Estou trabalhando na demanda "${itemName}" (status: ${statusLabel}). `
                 + `A nota de hoje diz:\n\n"${noteText.trim()}"\n\n`
-                + `Me ajuda a entender e resolver isso. O que devo fazer? `
+                + `Me ajuda a entender e resolver isso. O que devo fazer agora? `
                 + `Depois me pergunta se houve algum aprendizado para registrar.`;
         } else {
-            msg = `Analisa a demanda "${itemName}" (status: ${statusLabel}) para mim — `
-                + `como foi essa semana, o que está pendente e como posso avançar hoje. `
-                + `Depois me pergunta se houve algum aprendizado para registrar.`;
+            // ── SEM NOTA: buscar aprendizados para dar contexto ──────────
+            let aprendContext = '';
+            try {
+                const aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
+                const itemAprend = aprendData[category]?.[itemId];
+                if (itemAprend) {
+                    const notes = Array.isArray(itemAprend.notes) ? itemAprend.notes : [];
+                    const validNotes = notes.filter(n => !n.deleted && n.content && n.content.trim());
+                    if (validNotes.length > 0) {
+                        const lines = [];
+                        for (const n of validNotes.slice(0, 10)) {
+                            const checked = n.checkedLines || {};
+                            const noteLines = n.content.split('\n').filter(l => l.trim());
+                            const pending = [];
+                            const done = [];
+                            noteLines.forEach((line, idx) => {
+                                if (checked[String(idx)]) {
+                                    done.push(line.trim());
+                                } else {
+                                    pending.push(line.trim());
+                                }
+                            });
+                            let entry = `📝 "${n.title || 'sem título'}"`;
+                            if (pending.length > 0) entry += `\n  ⬜ Pendente: ${pending.join('; ')}`;
+                            if (done.length > 0) entry += `\n  ✅ Concluído: ${done.join('; ')}`;
+                            lines.push(entry);
+                        }
+                        aprendContext = lines.join('\n');
+                    }
+                }
+            } catch {}
+
+            if (aprendContext) {
+                // ── TEM APRENDIZADOS: sugerir ações baseadas no que falta ──
+                msg = `Analisa a demanda "${itemName}" (status: ${statusLabel}). `
+                    + `Não tem nota hoje, mas tem estes aprendizados registrados:\n\n${aprendContext}\n\n`
+                    + `Com base no que está PENDENTE (⬜), sugira o que eu devo fazer HOJE nessa demanda. `
+                    + `NÃO sugira o que já foi concluído (✅). `
+                    + `Me dê um plano de ação concreto para avançar hoje. `
+                    + `Depois me pergunta se houve algum aprendizado para registrar.`;
+            } else {
+                // ── SEM APRENDIZADOS E SEM NOTA: IA sugere livremente ──────
+                msg = `Analisa a demanda "${itemName}" (status: ${statusLabel}). `
+                    + `Não tem nota de hoje e nem aprendizados registrados para essa demanda. `
+                    + `Com base no que você sabe da minha semana e dos meus dados, `
+                    + `sugira o que eu posso fazer HOJE para avançar nessa demanda. `
+                    + `Me dê sugestões concretas e um plano de ação. `
+                    + `Depois me pergunta se houve algum aprendizado para registrar.`;
+            }
         }
 
-        // Auto-enviar a mensagem (não apenas pre-fill)
+        // Auto-enviar a mensagem
         setTimeout(() => {
             this.sendAIMessage(msg);
         }, 200);
