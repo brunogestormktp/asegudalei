@@ -107,66 +107,17 @@ body {
     top: 0;
     z-index: 100;
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
     gap: 16px;
-}
-
-.header-brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.logo {
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-}
-
-.header-title {
-    font-family: 'Quicksand', sans-serif;
-    font-weight: 600;
-    font-size: 20px;
-    color: var(--text-100);
-    margin: 0;
-    letter-spacing: 0.5px;
-}
-
-.header h1 {
-    font-family: 'Quicksand', sans-serif;
-    font-size: 1.5rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    margin: 0;
-    color: var(--text-100);
-    text-shadow: 0 2px 8px rgba(4, 34, 53, 0.5);
 }
 
 .header-actions {
     display: flex;
     gap: 8px;
     align-items: center;
-}
-
-.user-info {
-    display: flex;
-    align-items: center;
-    padding: 8px 14px;
-    background: rgba(149, 211, 238, 0.1);
-    border-radius: 12px;
-    margin-right: 8px;
-}
-
-.user-email {
-    font-family: 'Quicksand', sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-80);
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex-wrap: wrap;
+    justify-content: center;
 }
 
 .btn-nav-header {
@@ -3383,10 +3334,6 @@ mark.tsf-highlight {
         margin-right: -0.75rem;
     }
     
-    .header-title {
-        font-size: 18px;
-    }
-    
     .btn-nav-header span {
         display: none;
     }
@@ -3399,10 +3346,6 @@ mark.tsf-highlight {
     
     .header-actions {
         gap: 6px;
-    }
-
-    .header h1 {
-        font-size: 1rem;
     }
 
     .main-content {
@@ -3470,6 +3413,30 @@ mark.tsf-highlight {
 }
 
 /* ── Botão 📚 Aprendizados dentro do item ──────────────────── */
+/* ── Botão 🤖 Analisar com IA ─────────────────────────────── */
+.btn-ai-analyze {
+    background: rgba(168, 132, 255, 0.08);
+    border: 1px solid rgba(168, 132, 255, 0.18);
+    color: rgba(168, 132, 255, 0.65);
+    font-size: 14px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.btn-ai-analyze:hover {
+    background: rgba(168, 132, 255, 0.18);
+    border-color: rgba(168, 132, 255, 0.45);
+    color: rgba(168, 132, 255, 0.95);
+    transform: scale(1.08);
+}
+
 .btn-aprend-item {
     background: rgba(149, 211, 238, 0.08);
     border: 1px solid rgba(149, 211, 238, 0.18);
@@ -6568,6 +6535,67 @@ tbody .hs-tr:first-child .hs-td {
     font-weight: 400;
 }
 
+/* ─── Context IA button (inside settings-item-row) ──────────────────── */
+.settings-context-btn {
+    background: transparent;
+    border: none;
+    color: rgba(149, 211, 238, 0.4);
+    font-size: 0.78rem;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    line-height: 1;
+    transition: color 0.15s, background 0.15s;
+    opacity: 0;
+    white-space: nowrap;
+}
+
+.settings-item-row:hover .settings-context-btn {
+    opacity: 1;
+}
+
+.settings-context-btn:hover {
+    color: var(--azul-claro);
+    background: rgba(149, 211, 238, 0.1);
+}
+
+.settings-context-btn--filled {
+    opacity: 0.7 !important;
+    color: rgba(149, 211, 238, 0.7);
+}
+
+.settings-context-btn--filled:hover {
+    opacity: 1 !important;
+    color: var(--azul-claro);
+}
+
+/* ─── Demand context modal specifics ────────────────────────────────── */
+.demand-context-popup-content {
+    max-width: 520px;
+}
+
+#demandContextInput {
+    min-height: 140px;
+    max-height: 260px;
+    overflow-y: auto;
+    resize: none;
+    padding: 0.65rem 0.9rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.55;
+    box-sizing: border-box;
+}
+
+.demand-context-hint {
+    font-family: 'Quicksand', sans-serif;
+    font-size: 0.75rem;
+    color: rgba(149, 211, 238, 0.5);
+    margin: 0.4rem 0 0.8rem;
+    text-align: left;
+    line-height: 1.4;
+}
+
 /* ─── Mobile adjustments ────────────────────────────────────────────── */
 @media (max-width: 600px) {
     .settings-container {
@@ -6579,6 +6607,10 @@ tbody .hs-tr:first-child .hs-td {
     /* On mobile, show delete btn always (no hover) */
     .settings-delete-btn {
         opacity: 0.6;
+    }
+    /* On mobile, show context btn always */
+    .settings-context-btn {
+        opacity: 0.5;
     }
 }
 
@@ -7679,11 +7711,13 @@ tbody .hs-tr:first-child .hs-td {
 /* ─── Aba Assistente IA v2 ───────────────────────────────────────── */
 #aiView {
     flex-direction: column;
-    min-height: calc(100vh - var(--header-height, 60px));
 }
 
 #aiView:not(.hidden) {
     display: flex;
+    flex-direction: column;
+    height: calc(100dvh - var(--header-h, 60px));
+    overflow: hidden;
 }
 
 .ai-container {
@@ -7695,7 +7729,9 @@ tbody .hs-tr:first-child .hs-td {
     width: 100%;
     padding: 16px 12px 0;
     box-sizing: border-box;
-    min-height: calc(100vh - var(--header-height, 60px));
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .ai-header {
@@ -7751,13 +7787,12 @@ tbody .hs-tr:first-child .hs-td {
 /* Messages area */
 .ai-messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 14px;
     padding: 4px 0 12px;
-    min-height: 120px;
-    max-height: calc(100vh - var(--header-height, 60px) - 220px);
     scrollbar-width: thin;
     scrollbar-color: rgba(107,184,217,0.25) transparent;
 }
@@ -8072,6 +8107,51 @@ tbody .hs-tr:first-child .hs-td {
     color: #60a5fa;
 }
 
+/* Quick Reply Buttons (interactive AI responses) */
+.ai-quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 4px 0 8px;
+    align-self: flex-start;
+    max-width: 88%;
+    animation: ai-qr-fadein 0.3s ease-out;
+}
+
+@keyframes ai-qr-fadein {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.ai-quick-reply-btn {
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(107, 184, 217, 0.35);
+    background: rgba(107, 184, 217, 0.1);
+    color: #95d3ee;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'Quicksand', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.ai-quick-reply-btn:hover {
+    background: rgba(107, 184, 217, 0.25);
+    border-color: rgba(107, 184, 217, 0.6);
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(107, 184, 217, 0.2);
+}
+
+.ai-quick-reply-btn:active {
+    transform: scale(0.95);
+    box-shadow: none;
+}
+
 /* Typing indicator */
 .ai-typing {
     align-self: flex-start;
@@ -8111,10 +8191,12 @@ tbody .hs-tr:first-child .hs-td {
     align-items: flex-end;
     gap: 8px;
     padding: 10px 0 16px;
+    padding-bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
     border-top: 1px solid rgba(255,255,255,0.07);
     background: transparent;
     position: relative;
     bottom: 0;
+    flex-shrink: 0;
 }
 
 /* ── Slash Menu (/ autocomplete) ── */
@@ -8279,7 +8361,10 @@ tbody .hs-tr:first-child .hs-td {
 /* ── History drawer (slide from left) ── */
 .ai-history-overlay {
     position: fixed;
-    inset: 0;
+    top: var(--header-h, 60px);
+    left: 0;
+    right: 0;
+    bottom: 0;
     background: rgba(0,0,0,0.5);
     z-index: 998;
     opacity: 0;
@@ -8294,7 +8379,7 @@ tbody .hs-tr:first-child .hs-td {
 
 .ai-history-drawer {
     position: fixed;
-    top: 0;
+    top: var(--header-h, 60px);
     left: 0;
     bottom: 0;
     width: 280px;
@@ -8446,9 +8531,6 @@ tbody .hs-tr:first-child .hs-td {
     .ai-title {
         font-size: 18px;
     }
-    .ai-messages {
-        max-height: calc(100vh - var(--header-height, 60px) - 200px);
-    }
     .ai-bubble-wrap {
         max-width: 94%;
     }
@@ -8476,5 +8558,98 @@ tbody .hs-tr:first-child .hs-td {
     .ai-slash-item {
         padding: 9px 12px;
         font-size: 14px;
+    }
+}
+
+/* ── Desktop: always-visible history sidebar + design polish ── */
+@media (min-width: 768px) {
+    #aiView:not(.hidden) {
+        flex-direction: row;
+        height: calc(100dvh - var(--header-h, 60px));
+        overflow: hidden;
+    }
+
+    .ai-history-drawer {
+        position: static;
+        transform: none !important;
+        width: 260px;
+        max-width: none;
+        flex-shrink: 0;
+        border-right: 1px solid rgba(255,255,255,0.08);
+        border-radius: 0;
+        height: 100%;
+        overflow-y: auto;
+        z-index: auto;
+        background: rgba(26, 29, 35, 0.6);
+    }
+
+    .ai-history-overlay {
+        display: none !important;
+    }
+
+    /* Hide hamburger button on desktop — sidebar is always visible */
+    .ai-btn-history {
+        display: none;
+    }
+
+    /* Hide close button on desktop — sidebar cannot be closed */
+    .ai-history-close {
+        display: none;
+    }
+
+    .ai-container {
+        flex: 1;
+        height: 100%;
+        min-height: 0;
+        max-width: none;
+        padding: 20px 24px 0;
+    }
+
+    .ai-header {
+        padding: 16px 0 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        margin-bottom: 4px;
+    }
+
+    .ai-title {
+        font-size: 22px;
+    }
+
+    .ai-messages {
+        padding: 16px 0 16px;
+        gap: 16px;
+    }
+
+    .ai-bubble {
+        font-size: 15px;
+        padding: 12px 16px;
+    }
+
+    .ai-input-area {
+        padding: 12px 0 20px;
+    }
+
+    .ai-input {
+        font-size: 15px;
+        padding: 12px 16px;
+        border-radius: 16px;
+    }
+
+    /* History sidebar styling */
+    .ai-history-title {
+        font-size: 15px;
+        padding: 20px 16px 12px;
+    }
+
+    .ai-history-list {
+        padding: 0 8px 16px;
+    }
+
+    .ai-history-item {
+        border-radius: 10px;
+    }
+
+    .ai-history-item-delete {
+        opacity: 0.5;
     }
 }

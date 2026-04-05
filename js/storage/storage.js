@@ -427,6 +427,23 @@ const StorageManager = {
         return allData['_aprendizados'] || null;
     },
 
+    // ─── AI Conversations: salvar no Supabase via user_data._aiConversations ──
+    async saveAIConversations(conversations) {
+        const allData = await this.getData();
+        // Limitar a 30 conversas, cada conversa max 40 mensagens
+        const trimmed = (conversations || []).slice(0, 30).map(c => ({
+            ...c,
+            messages: (c.messages || []).slice(-40),
+        }));
+        allData['_aiConversations'] = trimmed;
+        await this.saveData(allData, true); // immediate push
+    },
+
+    async getAIConversations() {
+        const allData = await this.getData();
+        return allData['_aiConversations'] || [];
+    },
+
     // ─── Limpar TODOS os dados locais de outra conta ────────────────────
     // Chamado sempre que um usuário diferente faz login neste dispositivo.
     // Garante que nenhum dado de outra pessoa apareça na sessão atual.

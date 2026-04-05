@@ -56,62 +56,7 @@
     <div class="app">
         <!-- Header -->
         <header class="header">
-            <div class="header-brand">
-                <svg class="logo" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="2" y="2" width="11" height="11" rx="2" fill="url(#gradient1)"/>
-                    <rect x="15" y="2" width="11" height="11" rx="2" fill="url(#gradient2)"/>
-                    <rect x="28" y="2" width="11" height="11" rx="2" fill="url(#gradient3)"/>
-                    <rect x="2" y="15" width="11" height="11" rx="2" fill="url(#gradient4)"/>
-                    <rect x="15" y="15" width="11" height="11" rx="2" fill="url(#gradient5)"/>
-                    <rect x="28" y="15" width="11" height="11" rx="2" fill="url(#gradient6)"/>
-                    <rect x="2" y="28" width="11" height="11" rx="2" fill="url(#gradient7)"/>
-                    <rect x="15" y="28" width="11" height="11" rx="2" fill="url(#gradient8)"/>
-                    <rect x="28" y="28" width="11" height="11" rx="2" transform="rotate(8 34 34)" fill="url(#gradient9)"/>
-                    <defs>
-                        <linearGradient id="gradient1" x1="2" y1="2" x2="13" y2="13" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#95d3ee"/>
-                            <stop offset="1" stop-color="#6bb8d9"/>
-                        </linearGradient>
-                        <linearGradient id="gradient2" x1="15" y1="2" x2="26" y2="13" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#6bb8d9"/>
-                            <stop offset="1" stop-color="#4a9cc4"/>
-                        </linearGradient>
-                        <linearGradient id="gradient3" x1="28" y1="2" x2="39" y2="13" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#4a9cc4"/>
-                            <stop offset="1" stop-color="#2980af"/>
-                        </linearGradient>
-                        <linearGradient id="gradient4" x1="2" y1="15" x2="13" y2="26" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#6bb8d9"/>
-                            <stop offset="1" stop-color="#4a9cc4"/>
-                        </linearGradient>
-                        <linearGradient id="gradient5" x1="15" y1="15" x2="26" y2="26" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#4a9cc4"/>
-                            <stop offset="1" stop-color="#2980af"/>
-                        </linearGradient>
-                        <linearGradient id="gradient6" x1="28" y1="15" x2="39" y2="26" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#2980af"/>
-                            <stop offset="1" stop-color="#1c567e"/>
-                        </linearGradient>
-                        <linearGradient id="gradient7" x1="2" y1="28" x2="13" y2="39" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#4a9cc4"/>
-                            <stop offset="1" stop-color="#2980af"/>
-                        </linearGradient>
-                        <linearGradient id="gradient8" x1="15" y1="28" x2="26" y2="39" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#2980af"/>
-                            <stop offset="1" stop-color="#1c567e"/>
-                        </linearGradient>
-                        <linearGradient id="gradient9" x1="28" y1="28" x2="39" y2="39" gradientUnits="userSpaceOnUse">
-                            <stop stop-color="#1c567e"/>
-                            <stop offset="1" stop-color="#042235"/>
-                        </linearGradient>
-                    </defs>
-                </svg>
-                <h1 class="header-title">A Segunda Lei</h1>
-            </div>
             <div class="header-actions">
-                <div class="user-info">
-                    <span id="userEmail" class="user-email"></span>
-                </div>
                 <button class="btn-nav-header" id="btnToday" data-view="today">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -469,10 +414,10 @@
                   </div>
                 </div>
                 <div class="ai-quick-actions">
-                  <button class="ai-quick-btn" data-prompt="Analise meu dia de hoje, liste o que falta fazer e sugira uma ordem de prioridade.">📋 Planejar meu dia</button>
-                  <button class="ai-quick-btn" data-prompt="Quais itens ainda estão sem status hoje? Liste todos separados por categoria.">🔍 Ver pendências</button>
-                  <button class="ai-quick-btn" data-prompt="Faça um resumo da minha semana até agora com tendências e destaques.">📊 Resumo da semana</button>
-                  <button class="ai-quick-btn" data-prompt="Quais clientes preciso priorizar hoje e por quê?">👥 Foco em clientes</button>
+                  <button class="ai-quick-btn" data-prompt="Analise meu dia de hoje e me ajude a escolher qual demanda focar agora. Considere o que falta para fechar a semana 100%.">🎯 Qual demanda focar?</button>
+                  <button class="ai-quick-btn" data-prompt="Analise minha semana até agora. O que falta para fechar 100%? Quais são os itens mais críticos?">� Status da semana</button>
+                  <button class="ai-quick-btn" data-prompt="Quais itens estão bloqueados ou sem progresso? Me ajude a destrancar.">� Destrancar bloqueios</button>
+                  <button class="ai-quick-btn" data-prompt="Me dê um plano de ação para hoje: o que fazer primeiro, segundo e terceiro, considerando prioridades e deadlines.">📋 Plano do dia</button>
                 </div>
                 <div class="ai-messages" id="aiMessages"></div>
                 <div class="ai-input-area">
@@ -569,6 +514,25 @@
             <div class="aprend-popup-actions">
                 <button class="aprend-popup-btn-save bloqueado-btn-save" id="btnBloqueadoSave">✓ Salvar</button>
                 <button class="aprend-popup-btn-skip" id="btnBloqueadoSkip">Pular</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Contexto da Demanda (para treinar IA) -->
+    <div class="aprend-popup-modal" id="demandContextModal">
+        <div class="aprend-popup-content demand-context-popup-content">
+            <div class="aprend-popup-icon">🧠</div>
+            <h3 class="aprend-popup-title" id="demandContextTitle">Contexto da demanda</h3>
+            <p class="aprend-popup-subtitle">Descreva o contexto desta demanda para a IA dar respostas mais precisas.</p>
+            <div class="aprend-popup-input-wrap">
+                <textarea id="demandContextInput" class="aprend-popup-input" placeholder="Ex: Cliente de marketing digital, contrato mensal de R$5k, foco em Google Ads e redes sociais. Ponto de contato: João (diretor). Reuniões às terças." rows="6"></textarea>
+            </div>
+            <div class="demand-context-hint">
+                💡 Dica: inclua informações como tipo de projeto, pessoas envolvidas, frequência de contato, desafios principais, etc.
+            </div>
+            <div class="aprend-popup-actions">
+                <button class="aprend-popup-btn-save" id="btnDemandContextSave">💾 Salvar</button>
+                <button class="aprend-popup-btn-skip" id="btnDemandContextCancel">Cancelar</button>
             </div>
         </div>
     </div>

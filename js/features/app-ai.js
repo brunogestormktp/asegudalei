@@ -9,26 +9,28 @@ Object.assign(HabitTrackerApp.prototype, {
     _aiInited:        false,
     _aiPending:       false,
     _aiConvoId:       null,    // ID da conversa ativa
-    _AI_STORAGE_KEY:  'ai-conversations',
+    _aiConvosLoaded:  false,   // conversas já foram carregadas do Supabase?
 
-    // ── Persistência de conversas ────────────────────────────────────────
-    _aiLoadConversations() {
+    // ── Persistência de conversas (Supabase via StorageManager) ──────────
+    async _aiLoadConversations() {
         try {
-            return JSON.parse(localStorage.getItem(this._AI_STORAGE_KEY) || '[]');
+            // Carregar do Supabase (cai no cache do localStorage internamente)
+            const convos = await StorageManager.getAIConversations();
+            return Array.isArray(convos) ? convos : [];
         } catch { return []; }
     },
 
-    _aiSaveConversations(convos) {
+    async _aiSaveConversations(convos) {
         try {
             // Manter no máximo 30 conversas
-            const trimmed = convos.slice(0, 30);
-            localStorage.setItem(this._AI_STORAGE_KEY, JSON.stringify(trimmed));
+            const trimmed = (convos || []).slice(0, 30);
+            await StorageManager.saveAIConversations(trimmed);
         } catch (e) { console.error('AI save conversations error:', e); }
     },
 
-    _aiSaveCurrentConvo() {
+    async _aiSaveCurrentConvo() {
         if (!this._aiConvoId || this._aiHistory.length === 0) return;
-        const convos = this._aiLoadConversations();
+        const convos = await this._aiLoadConversations();
         const idx = convos.findIndex(c => c.id === this._aiConvoId);
         const firstUserMsg = this._aiHistory.find(m => m.role === 'user');
         const title = firstUserMsg
@@ -47,13 +49,13 @@ Object.assign(HabitTrackerApp.prototype, {
         }
         // Sort by most recent
         convos.sort((a, b) => b.updatedAt - a.updatedAt);
-        this._aiSaveConversations(convos);
+        await this._aiSaveConversations(convos);
     },
 
-    _aiDeleteConvo(convoId) {
-        let convos = this._aiLoadConversations();
+    async _aiDeleteConvo(convoId) {
+        let convos = await this._aiLoadConversations();
         convos = convos.filter(c => c.id !== convoId);
-        this._aiSaveConversations(convos);
+        await this._aiSaveConversations(convos);
         // Se deletou a conversa ativa, iniciar nova
         if (this._aiConvoId === convoId) {
             this._aiStartNewConvo();
@@ -61,9 +63,9 @@ Object.assign(HabitTrackerApp.prototype, {
         this._aiRenderHistoryList();
     },
 
-    _aiStartNewConvo() {
+    async _aiStartNewConvo() {
         // Salvar conversa atual antes de criar nova
-        this._aiSaveCurrentConvo();
+        await this._aiSaveCurrentConvo();
         this._aiConvoId = 'c_' + Date.now();
         this._aiHistory = [];
         // Limpar DOM
@@ -80,10 +82,10 @@ Object.assign(HabitTrackerApp.prototype, {
         this._aiRenderHistoryList();
     },
 
-    _aiLoadConvo(convoId) {
+    async _aiLoadConvo(convoId) {
         // Salvar a conversa atual primeiro
-        this._aiSaveCurrentConvo();
-        const convos = this._aiLoadConversations();
+        await this._aiSaveCurrentConvo();
+        const convos = await this._aiLoadConversations();
         const convo = convos.find(c => c.id === convoId);
         if (!convo) return;
         this._aiConvoId = convo.id;
@@ -102,12 +104,16 @@ Object.assign(HabitTrackerApp.prototype, {
 
     // ── History drawer ───────────────────────────────────────────────────
     _aiOpenHistory() {
+        // On desktop (≥768px) the sidebar is always visible — skip
+        if (window.innerWidth >= 768) return;
         document.getElementById('aiHistoryDrawer')?.classList.add('open');
         document.getElementById('aiHistoryOverlay')?.classList.add('active');
         this._aiRenderHistoryList();
     },
 
     _aiCloseHistory() {
+        // On desktop (≥768px) the sidebar is always visible — skip
+        if (window.innerWidth >= 768) return;
         document.getElementById('aiHistoryDrawer')?.classList.remove('open');
         document.getElementById('aiHistoryOverlay')?.classList.remove('active');
     },
@@ -115,48 +121,51 @@ Object.assign(HabitTrackerApp.prototype, {
     _aiRenderHistoryList() {
         const list = document.getElementById('aiHistoryList');
         if (!list) return;
-        list.innerHTML = '';
-        const convos = this._aiLoadConversations();
+        list.innerHTML = '<div class="ai-history-empty">Carregando...</div>';
 
-        if (convos.length === 0) {
-            const empty = document.createElement('div');
-            empty.className = 'ai-history-empty';
-            empty.textContent = 'Nenhuma conversa salva ainda.';
-            list.appendChild(empty);
-            return;
-        }
+        this._aiLoadConversations().then(convos => {
+            list.innerHTML = '';
 
-        for (const convo of convos) {
-            const item = document.createElement('div');
-            item.className = 'ai-history-item' + (convo.id === this._aiConvoId ? ' active' : '');
+            if (convos.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'ai-history-empty';
+                empty.textContent = 'Nenhuma conversa salva ainda.';
+                list.appendChild(empty);
+                return;
+            }
 
-            const textDiv = document.createElement('div');
-            textDiv.className = 'ai-history-item-text';
+            for (const convo of convos) {
+                const item = document.createElement('div');
+                item.className = 'ai-history-item' + (convo.id === this._aiConvoId ? ' active' : '');
 
-            const title = document.createElement('div');
-            title.className = 'ai-history-item-title';
-            title.textContent = convo.title || 'Conversa';
-            textDiv.appendChild(title);
+                const textDiv = document.createElement('div');
+                textDiv.className = 'ai-history-item-text';
 
-            const date = document.createElement('div');
-            date.className = 'ai-history-item-date';
-            date.textContent = this._aiFormatConvoDate(convo.updatedAt);
-            textDiv.appendChild(date);
+                const title = document.createElement('div');
+                title.className = 'ai-history-item-title';
+                title.textContent = convo.title || 'Conversa';
+                textDiv.appendChild(title);
 
-            const delBtn = document.createElement('button');
-            delBtn.className = 'ai-history-item-delete';
-            delBtn.textContent = '🗑';
-            delBtn.title = 'Apagar conversa';
-            delBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this._aiDeleteConvo(convo.id);
-            });
+                const date = document.createElement('div');
+                date.className = 'ai-history-item-date';
+                date.textContent = this._aiFormatConvoDate(convo.updatedAt);
+                textDiv.appendChild(date);
 
-            item.appendChild(textDiv);
-            item.appendChild(delBtn);
-            item.addEventListener('click', () => this._aiLoadConvo(convo.id));
-            list.appendChild(item);
-        }
+                const delBtn = document.createElement('button');
+                delBtn.className = 'ai-history-item-delete';
+                delBtn.textContent = '🗑';
+                delBtn.title = 'Apagar conversa';
+                delBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this._aiDeleteConvo(convo.id);
+                });
+
+                item.appendChild(textDiv);
+                item.appendChild(delBtn);
+                item.addEventListener('click', () => this._aiLoadConvo(convo.id));
+                list.appendChild(item);
+            }
+        });
     },
 
     _aiFormatConvoDate(ts) {
@@ -176,7 +185,7 @@ Object.assign(HabitTrackerApp.prototype, {
     },
 
     // ── Entrada principal: renderizar a aba ──────────────────────────────
-    renderAIView() {
+    async renderAIView() {
         if (!this._aiInited) {
             this._aiAttachListeners();
             this._aiInited = true;
@@ -184,6 +193,28 @@ Object.assign(HabitTrackerApp.prototype, {
             if (!this._aiConvoId) {
                 this._aiConvoId = 'c_' + Date.now();
             }
+
+            // Tentar restaurar última conversa do Supabase
+            if (!this._aiConvosLoaded) {
+                this._aiConvosLoaded = true;
+                try {
+                    const convos = await this._aiLoadConversations();
+                    if (convos.length > 0 && this._aiHistory.length === 0) {
+                        // Restaurar a conversa mais recente
+                        const latest = convos[0];
+                        this._aiConvoId = latest.id;
+                        this._aiHistory = latest.messages.slice();
+                        const container = document.getElementById('aiMessages');
+                        if (container) container.innerHTML = '';
+                        for (const msg of this._aiHistory) {
+                            this._appendMessage(msg.role, msg.content);
+                        }
+                        this._aiScrollToBottom();
+                        return; // já renderizou
+                    }
+                } catch (e) { console.warn('AI: failed to load conversations from Supabase', e); }
+            }
+
             if (this._aiHistory.length === 0) {
                 const now = new Date();
                 const dias = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
@@ -262,6 +293,28 @@ Object.assign(HabitTrackerApp.prototype, {
 
         // New chat
         document.getElementById('aiNewChat')?.addEventListener('click', () => this._aiStartNewConvo());
+
+        // ── Desktop / Mobile resize handler ──────────────────────────────
+        let wasDesktop = window.innerWidth >= 768;
+        window.addEventListener('resize', () => {
+            const isDesktop = window.innerWidth >= 768;
+            if (isDesktop === wasDesktop) return;
+            wasDesktop = isDesktop;
+            const drawer  = document.getElementById('aiHistoryDrawer');
+            const overlay = document.getElementById('aiHistoryOverlay');
+            if (isDesktop) {
+                // Transitioning to desktop: clean up mobile drawer state
+                drawer?.classList.remove('open');
+                overlay?.classList.remove('active');
+            }
+            // On desktop the sidebar list should stay up to date
+            if (isDesktop) this._aiRenderHistoryList();
+        });
+
+        // On desktop, render history list immediately so sidebar shows content
+        if (window.innerWidth >= 768) {
+            this._aiRenderHistoryList();
+        }
     },
 
     _aiSendFromInput() {
@@ -280,6 +333,13 @@ Object.assign(HabitTrackerApp.prototype, {
         if (this._aiPending || !message.trim()) return;
         this._aiPending = true;
 
+        // Bug 2: Garantir que _aiConvoId está definido antes de qualquer operação
+        if (!this._aiConvoId) this._aiConvoId = 'c_' + Date.now();
+
+        // Remover quick replies anteriores antes de nova mensagem
+        const container = document.getElementById('aiMessages');
+        container?.querySelectorAll('.ai-quick-replies').forEach(el => el.remove());
+
         this._appendMessage('user', message);
         this._aiScrollToBottom();
 
@@ -295,19 +355,45 @@ Object.assign(HabitTrackerApp.prototype, {
             const supabaseClient = window.getSupabaseClient();
             if (!supabaseClient) throw new Error('Supabase não disponível');
 
-            const { data: sessionData } = await supabaseClient.auth.getSession();
-            const token = sessionData?.session?.access_token;
-            if (!token) throw new Error('Sessão expirada — faça login novamente');
+            // Obter sessão válida — tenta getSession() primeiro, se token expirado faz refresh
+            let session;
+            const { data: { session: cached } } = await supabaseClient.auth.getSession();
+            if (cached?.access_token) {
+                // Verificar se o token está próximo de expirar (menos de 60s restantes)
+                const exp = cached.expires_at ? cached.expires_at * 1000 : 0;
+                if (exp && exp - Date.now() < 60000) {
+                    console.log('AI: token expirando em breve, forçando refresh...');
+                    const { data: { session: refreshed } } = await supabaseClient.auth.refreshSession();
+                    session = refreshed || cached;
+                } else {
+                    session = cached;
+                }
+            } else {
+                // Sem sessão em cache — tentar refresh
+                const { data: { session: refreshed } } = await supabaseClient.auth.refreshSession();
+                session = refreshed;
+            }
+            if (!session?.access_token) throw new Error('Sessão expirada — faça login novamente');
+
+            // Forçar sync dos dados locais para o Supabase ANTES de chamar a IA,
+            // garantindo que a Edge Function leia os dados mais recentes.
+            try {
+                const localData = await StorageManager.getData();
+                if (StorageManager.hasRealData(localData)) {
+                    await StorageManager._pushToSupabase(localData);
+                }
+            } catch (e) { console.warn('AI: pre-sync failed (will use context_hint fallback)', e); }
 
             const aiHeaders = {
-                'Authorization': `Bearer ${token}`,
+                'Authorization': `Bearer ${session.access_token}`,
                 'Content-Type':  'application/json',
                 'apikey':        SUPABASE_CONFIG.anonKey,
             };
+            const contextHint = await this._buildAIContext();
             const aiBody = JSON.stringify({
                 message,
                 history:      this._aiHistory.slice(-20),
-                context_hint: this._buildAIContext(),
+                context_hint: contextHint,
             });
 
             let resp = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/ai-assistant`, {
@@ -316,10 +402,10 @@ Object.assign(HabitTrackerApp.prototype, {
                 body: aiBody,
             });
 
+            // Se 401 (token expirado), forçar refresh e tentar uma vez
             if (resp.status === 401) {
-                console.log('AI assistant 401 — aguardando refresh e retentando...');
-                await new Promise(r => setTimeout(r, 2000));
-                const { data: { session: fresh } } = await supabaseClient.auth.getSession();
+                console.log('AI assistant 401 — forçando refreshSession e retentando...');
+                const { data: { session: fresh } } = await supabaseClient.auth.refreshSession();
                 if (!fresh?.access_token) throw new Error('Sessão expirada — faça login novamente');
                 aiHeaders['Authorization'] = `Bearer ${fresh.access_token}`;
                 resp = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/ai-assistant`, {
@@ -354,7 +440,14 @@ Object.assign(HabitTrackerApp.prototype, {
                     if (this._aiHistory.length > 40) {
                         this._aiHistory = this._aiHistory.slice(-40);
                     }
-                    // Persist conversation
+
+                    // Render quick reply buttons if present
+                    const quickReplies = Array.isArray(data.quickReplies) ? data.quickReplies : [];
+                    if (quickReplies.length > 0) {
+                        this._renderQuickReplies(quickReplies);
+                    }
+
+                    // Persist conversation to Supabase
                     this._aiSaveCurrentConvo();
                 }
 
@@ -378,8 +471,36 @@ Object.assign(HabitTrackerApp.prototype, {
         }
     },
 
-    // ── Contexto enviado como hint (itens ativos do APP_DATA) ────────────
-    _buildAIContext() {
+    // ── Botões de resposta rápida (quick replies) ──────────────────────
+    _renderQuickReplies(replies) {
+        const container = document.getElementById('aiMessages');
+        if (!container || !replies.length) return;
+
+        // Remover quick replies anteriores
+        container.querySelectorAll('.ai-quick-replies').forEach(el => el.remove());
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'ai-quick-replies';
+
+        for (const text of replies) {
+            const btn = document.createElement('button');
+            btn.className = 'ai-quick-reply-btn';
+            btn.textContent = text;
+            btn.addEventListener('click', () => {
+                // Remover os botões após clique
+                wrapper.remove();
+                // Enviar como mensagem do usuário
+                this.sendAIMessage(text);
+            });
+            wrapper.appendChild(btn);
+        }
+
+        container.appendChild(wrapper);
+        this._aiScrollToBottom();
+    },
+
+    // ── Contexto enviado como hint (itens ativos do APP_DATA + dados em tempo real) ─
+    async _buildAIContext() {
         try {
             const todayStr = this.getDateString();
             const activeItems = {};
@@ -394,7 +515,84 @@ Object.assign(HabitTrackerApp.prototype, {
                 if (st === 'bloqueado') blockedCount++;
                 if (!st || st === 'none' || st === 'nao-feito') pendingCount++;
             });
-            return { today: todayStr, activeItems, pendingCount, blockedCount };
+
+            // Include user-defined demand contexts for AI training
+            let itemContexts = null;
+            try {
+                const s = StorageManager.getSettings();
+                if (s.itemContexts) {
+                    const ctx = {};
+                    for (const cat of ['clientes', 'categorias', 'atividades']) {
+                        if (s.itemContexts[cat] && Object.keys(s.itemContexts[cat]).length > 0) {
+                            ctx[cat] = s.itemContexts[cat];
+                        }
+                    }
+                    if (Object.keys(ctx).length > 0) itemContexts = ctx;
+                }
+            } catch {}
+
+            // Include week day info for better planning
+            const now = new Date();
+            const dayOfWeek = now.getDay(); // 0=dom
+            const daysLeftInWeek = 6 - dayOfWeek; // dias até sábado
+
+            // ── DADOS EM TEMPO REAL: ler do localStorage todos os status/notas de hoje ──
+            // Isso garante que a IA sempre veja os dados mais recentes,
+            // mesmo que o Supabase ainda não tenha recebido o sync.
+            let todayData = null;
+            let recentData = null;
+            try {
+                const allData = await StorageManager.getData();
+                const td = allData[todayStr];
+                if (td && typeof td === 'object') {
+                    todayData = {};
+                    for (const cat of ['clientes', 'categorias', 'atividades']) {
+                        const catData = td[cat];
+                        if (!catData || typeof catData !== 'object') continue;
+                        todayData[cat] = {};
+                        for (const [itemId, raw] of Object.entries(catData)) {
+                            const st = typeof raw === 'string' ? raw : (raw?.status || 'none');
+                            const note = typeof raw === 'object' ? (raw?.note || '') : '';
+                            todayData[cat][itemId] = { status: st, note: note };
+                        }
+                    }
+                }
+
+                // ── DADOS RECENTES: últimos 7 dias para contexto da semana ──
+                recentData = {};
+                for (let i = 1; i <= 7; i++) {
+                    const d = new Date(todayStr + 'T12:00:00Z');
+                    d.setUTCDate(d.getUTCDate() - i);
+                    const ds = d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+                    const dd = allData[ds];
+                    if (!dd || typeof dd !== 'object') continue;
+                    recentData[ds] = {};
+                    for (const cat of ['clientes', 'categorias', 'atividades']) {
+                        const catData = dd[cat];
+                        if (!catData || typeof catData !== 'object') continue;
+                        recentData[ds][cat] = {};
+                        for (const [itemId, raw] of Object.entries(catData)) {
+                            const st = typeof raw === 'string' ? raw : (raw?.status || 'none');
+                            const note = typeof raw === 'object' ? (raw?.note || '') : '';
+                            if (st !== 'none' || note) {
+                                recentData[ds][cat][itemId] = { status: st, note: note.slice(0, 200) };
+                            }
+                        }
+                    }
+                }
+            } catch (e) { console.warn('AI context: failed to read local data', e); }
+
+            return {
+                today: todayStr,
+                activeItems,
+                pendingCount,
+                blockedCount,
+                itemContexts,
+                dayOfWeek,
+                daysLeftInWeek,
+                todayData,
+                recentData,
+            };
         } catch {
             return { today: this.getDateString() };
         }
@@ -403,6 +601,30 @@ Object.assign(HabitTrackerApp.prototype, {
     // ── Aplicar ações retornadas pela IA ─────────────────────────────────
     async _applyAIActions(actions) {
         const validCategories = ['clientes', 'categorias', 'atividades'];
+
+        // Map common AI category mistakes to valid values
+        const categoryAliases = {
+            clientes: 'clientes', cliente: 'clientes', clients: 'clientes',
+            categorias: 'categorias', categoria: 'categorias', empresa: 'categorias',
+            atividades: 'atividades', atividade: 'atividades', pessoal: 'atividades', pessoais: 'atividades', personal: 'atividades',
+        };
+
+        // Helper: resolve category + verify itemId exists, with cross-category fallback
+        const resolveCategory = (rawCat, itemId) => {
+            // First try alias mapping
+            const mapped = categoryAliases[(rawCat || '').toLowerCase().trim()];
+            if (mapped) {
+                const catItems = (typeof APP_DATA !== 'undefined' && APP_DATA[mapped]) || [];
+                if (catItems.some(it => it.id === itemId)) return mapped;
+            }
+            // Fallback: search itemId across all categories
+            for (const cat of validCategories) {
+                const catItems = (typeof APP_DATA !== 'undefined' && APP_DATA[cat]) || [];
+                if (catItems.some(it => it.id === itemId)) return cat;
+            }
+            return mapped || null; // return mapped even if itemId not found (will fail later with clear error)
+        };
+
         let anyChange = false;
         const updates = [];
         const aprendizados = [];
@@ -411,11 +633,12 @@ Object.assign(HabitTrackerApp.prototype, {
             if (!action || typeof action !== 'object') continue;
 
             if (action.action === 'update_item') {
-                const { category, itemId, status, note } = action;
+                const { itemId, status, note } = action;
                 const dateTarget = action.date || 'hoje';
-                if (!validCategories.includes(category)) { console.warn('AI: categoria inválida', category); continue; }
+                const category = resolveCategory(action.category, itemId);
+                if (!category) { console.warn('AI: categoria inválida e sem fallback', action.category, itemId); continue; }
                 const catItems = (typeof APP_DATA !== 'undefined' && APP_DATA[category]) || [];
-                if (!catItems.some(it => it.id === itemId)) { console.warn('AI: itemId não encontrado', itemId); continue; }
+                if (!catItems.some(it => it.id === itemId)) { console.warn('AI: itemId não encontrado', itemId, 'em', category); continue; }
 
                 try {
                     const dateStr = this._aiResolveDateTarget(dateTarget);
@@ -451,8 +674,9 @@ Object.assign(HabitTrackerApp.prototype, {
                 } catch (err) { console.error('AI update_item error:', err); }
 
             } else if (action.action === 'create_aprendizado') {
-                const { category, itemId, title, content } = action;
-                if (!validCategories.includes(category)) { console.warn('AI: categoria inválida', category); continue; }
+                const { itemId, title, content } = action;
+                const category = resolveCategory(action.category, itemId);
+                if (!category) { console.warn('AI: categoria inválida para aprendizado', action.category, itemId); continue; }
                 if (!title || !content) { console.warn('AI: title/content obrigatórios'); continue; }
 
                 try {
@@ -494,12 +718,28 @@ Object.assign(HabitTrackerApp.prototype, {
         if (aprendizados.length > 0) {
             const lines = aprendizados.map(a => `📝 **${a.title}** criado para **${a.itemName}**`);
             this._appendActionFeedback('aprendizado', lines.join('\n'));
+            // Marcar aprendizados como sujos para re-render ao abrir a aba
+            this._aiAprendizadosDirty = true;
+        }
+
+        // Feature 1: Perguntar sobre aprendizado após concluir item
+        const completedItems = updates.filter(u => u.status === 'concluido' || u.status === 'concluido-ongoing');
+        if (completedItems.length > 0) {
+            const names = completedItems.map(u => u.itemName).join(', ');
+            const followUp = `📚 **${names}** concluído! O que você aprendeu ou quer registrar?`;
+            this._appendMessage('assistant', followUp);
+            this._renderQuickReplies(["📝 Registrar aprendizado", "✅ Nada por enquanto", "🔍 Ver aprendizados"]);
         }
 
         if (anyChange && this.currentView === 'today') {
             this._todayScrollTop = window.scrollY;
             this._pendingScrollRestore = true;
             this.renderTodayView();
+        }
+        if (anyChange && this.currentView === 'aprendizados') {
+            if (typeof Aprendizados !== 'undefined') {
+                Aprendizados.onShow();
+            }
         }
     },
 
@@ -1020,6 +1260,7 @@ Object.assign(HabitTrackerApp.prototype, {
                 const noteId = 'ai_' + Date.now();
                 item.notes.push({ id: noteId, title, content: clean, checkedLines: {}, updatedAt: new Date().toISOString() });
                 await StorageManager.saveAprendizados(aprendData);
+                this._aiAprendizadosDirty = true;
                 this._appendActionFeedback('aprendizado',
                     `📚 Aprendizado salvo em **${itemName}**: "${title}"`
                 );
@@ -1144,6 +1385,22 @@ Object.assign(HabitTrackerApp.prototype, {
                 container.scrollTop = container.scrollHeight;
             });
         }
+    },
+
+    // ── Feature 2: Abrir IA com contexto de um item específico ───────────
+    _aiOpenWithItem(category, itemId, itemName) {
+        this.showView('ai');
+        const msg = `Analisa a demanda "${itemName}" para mim — como foi essa semana, o que está pendente e como posso avançar hoje.`;
+        // Pre-fill input e dar foco para o usuário poder editar antes de enviar
+        setTimeout(() => {
+            const input = document.getElementById('aiInput');
+            if (input) {
+                input.value = msg;
+                input.focus();
+                // Posicionar cursor no final
+                input.setSelectionRange(msg.length, msg.length);
+            }
+        }, 150);
     },
 
 });

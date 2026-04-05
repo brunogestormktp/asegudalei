@@ -327,6 +327,11 @@ class HabitTrackerApp {
                     Aprendizados.init();
                     this._aprendizadosInited = true;
                 } else {
+                    // Se AI criou aprendizados, forçar refresh dos dados
+                    if (this._aiAprendizadosDirty) {
+                        this._aiAprendizadosDirty = false;
+                        Aprendizados.refreshFromRemote();
+                    }
                     Aprendizados.onShow();
                 }
             }

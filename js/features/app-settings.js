@@ -148,8 +148,15 @@ Object.assign(HabitTrackerApp.prototype, {
                         <button class="settings-order-btn" data-dir="down" title="Mover para baixo">▼</button>
                     </div>
                     <input type="text" class="settings-item-input" value="${this._escapeHtmlAttr(customName)}" placeholder="Digite o nome..." />
+                    <button class="settings-context-btn" title="Contexto IA — descreva esta demanda para a IA">🧠</button>
                     <button class="settings-delete-btn" title="Remover demanda">✕</button>
                 `;
+
+                // Context IA button
+                const contextBtn = row.querySelector('.settings-context-btn');
+                const existingContext = (s.itemContexts && s.itemContexts[key] && s.itemContexts[key][item.id]) || '';
+                if (existingContext) contextBtn.classList.add('settings-context-btn--filled');
+                contextBtn.addEventListener('click', () => this._openDemandContextModal(key, item.id, customName));
 
                 // ▲▼ buttons
                 row.querySelector('[data-dir="up"]').addEventListener('click', () => this._onItemMove(key, item.id, -1));
@@ -421,6 +428,72 @@ Object.assign(HabitTrackerApp.prototype, {
         // Re-renderizar settings e views
         this.renderSettingsView();
         this._reRenderAfterSettingsChange();
+    },
+
+    // ── Demand Context Modal (Contexto IA) ─────────────────────────────
+
+    /** Opens the demand context modal for a specific item */
+    _openDemandContextModal(cat, itemId, itemName) {
+        const modal = document.getElementById('demandContextModal');
+        const titleEl = document.getElementById('demandContextTitle');
+        const input = document.getElementById('demandContextInput');
+        const saveBtn = document.getElementById('btnDemandContextSave');
+        const cancelBtn = document.getElementById('btnDemandContextCancel');
+
+        if (!modal || !input) return;
+
+        // Set title
+        if (titleEl) titleEl.textContent = `🧠 Contexto: ${itemName}`;
+
+        // Load existing context
+        const s = StorageManager.getSettings();
+        const existing = (s.itemContexts && s.itemContexts[cat] && s.itemContexts[cat][itemId]) || '';
+        input.value = existing;
+
+        // Show modal
+        modal.classList.add('show');
+        setTimeout(() => input.focus(), 100);
+
+        // Save handler
+        const onSave = () => {
+            const text = input.value.trim().slice(0, 2000); // max 2000 chars
+            const settings = StorageManager.getSettings();
+            if (!settings.itemContexts) settings.itemContexts = { clientes: {}, categorias: {}, atividades: {} };
+            if (!settings.itemContexts[cat]) settings.itemContexts[cat] = {};
+            if (text) {
+                settings.itemContexts[cat][itemId] = text;
+            } else {
+                delete settings.itemContexts[cat][itemId];
+            }
+            StorageManager.saveSettings(settings);
+            modal.classList.remove('show');
+            cleanup();
+            // Update button visual
+            this.renderSettingsView();
+        };
+
+        // Cancel handler
+        const onCancel = () => {
+            modal.classList.remove('show');
+            cleanup();
+        };
+
+        // Close on backdrop click
+        const onBackdrop = (e) => {
+            if (e.target === modal) onCancel();
+        };
+
+        // Cleanup listeners
+        const cleanup = () => {
+            saveBtn?.removeEventListener('click', onSave);
+            cancelBtn?.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+        };
+
+        // Attach listeners
+        saveBtn?.addEventListener('click', onSave);
+        cancelBtn?.addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
     },
 
     // ── Ranking Profile Settings ─────────────────────────────────────────
