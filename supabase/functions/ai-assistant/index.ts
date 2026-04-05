@@ -1,5 +1,5 @@
-// Edge Function: ai-assistant v2
-// Filtra itens ativos via _settings, permite markdown, max_tokens 3000.
+// Edge Function: ai-assistant v3 (token-optimized)
+// Filtra itens ativos via _settings, permite markdown, max_tokens 2000.
 // Token da IA nunca no frontend. Rate limit: 30 req/60s por user.
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
@@ -65,7 +65,7 @@ serve(async (req: Request) => {
     const history = rawHistory
       .filter((m: any) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
       .map((m: any) => ({ role: m.role as string, content: m.content as string }))
-      .slice(-20);
+      .slice(-12);
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
     const { data: userData, error: dataError } = await supabaseAdmin
@@ -95,7 +95,7 @@ serve(async (req: Request) => {
           ...history,
           { role: 'user', content: message },
         ],
-        max_tokens: 3000,
+        max_tokens: 2000,
         temperature: 0.7,
       }),
     });
@@ -286,7 +286,7 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
         const st = raw == null ? 'none' : typeof raw === 'string' ? raw : (raw?.status || 'none');
         const note = typeof raw === 'object' ? (raw?.note || '') : '';
         let line = '  ' + it.name + ': ' + st;
-        if (note) line += ' → "' + note.slice(0,200) + '"';
+        if (note) line += ' → "' + note.slice(0,150) + '"';
         L.push(line);
         if (st === 'none') noStatus.push(it.name);
         else if (!note) noNote.push(it.name);
@@ -300,12 +300,10 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
   }
 
   if (noStatus.length) {
-    L.push('\n=== ITENS SEM STATUS HOJE (' + noStatus.length + ') ===');
-    noStatus.forEach(s => L.push('  ' + s));
+    L.push('\n⚪ SEM STATUS HOJE (' + noStatus.length + '): ' + noStatus.slice(0, 10).join(', ') + (noStatus.length > 10 ? '...' : ''));
   }
   if (noNote.length) {
-    L.push('\n=== ITENS COM STATUS MAS SEM NOTA (' + noNote.length + ') ===');
-    noNote.forEach(s => L.push('  ' + s));
+    L.push('📝 COM STATUS SEM NOTA (' + noNote.length + '): ' + noNote.slice(0, 10).join(', ') + (noNote.length > 10 ? '...' : ''));
   }
 
   const thisWeekStart = weekStart(todayStr);
@@ -315,36 +313,55 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
   // Dados recentes em tempo real do frontend (mais atualizados que Supabase)
   const hintRecentData = (hint as any)?.recentData || null;
 
+  // 7 dias detalhados + dias 8-14 apenas contagem
   for (let i = 1; i <= 14; i++) {
     const d = new Date(todayStr + 'T12:00:00Z');
     d.setUTCDate(d.getUTCDate() - i);
     const ds = d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
-    // Preferir dados em tempo real do frontend para os últimos 7 dias
     const dd = (hintRecentData && hintRecentData[ds]) ? hintRecentData[ds] : allData[ds];
     if (!dd || typeof dd !== 'object') continue;
-    const dayLines: string[] = [];
-    for (const c of ['clientes','categorias','atividades']) {
-      const cd = dd[c];
-      if (!cd) continue;
-      for (const [id, v] of Object.entries(cd)) {
-        if (!idSets[c].has(id)) continue;
-        const st = typeof v === 'string' ? v : (v as any)?.status || 'none';
-        if (st && st !== 'none') {
-          const nm = active[c].find(x => x.id === id)?.name || id;
-          const note = typeof v === 'object' ? ((v as any)?.note || '') : '';
-          let entry = nm + ':' + st;
-          if (note) entry += ' → "' + note.slice(0, 200) + '"';
-          dayLines.push(entry);
+
+    if (i <= 7) {
+      // Últimos 7 dias: detalhes com notas
+      const dayLines: string[] = [];
+      for (const c of ['clientes','categorias','atividades']) {
+        const cd = dd[c];
+        if (!cd) continue;
+        for (const [id, v] of Object.entries(cd)) {
+          if (!idSets[c].has(id)) continue;
+          const st = typeof v === 'string' ? v : (v as any)?.status || 'none';
+          if (st && st !== 'none') {
+            const nm = active[c].find(x => x.id === id)?.name || id;
+            const note = typeof v === 'object' ? ((v as any)?.note || '') : '';
+            let entry = nm + ':' + st;
+            if (note) entry += ' → "' + note.slice(0, 120) + '"';
+            dayLines.push(entry);
+          }
         }
       }
-    }
-    if (dayLines.length) {
-      const label = humanDate(ds, todayStr);
-      const block = '  📅 ' + label + ':\n' + dayLines.map(l => '    ' + l).join('\n');
-      if (ds >= thisWeekStart) {
-        thisWeekEntries.push(block);
-      } else {
-        olderEntries.push(block);
+      if (dayLines.length) {
+        const label = humanDate(ds, todayStr);
+        const block = '  📅 ' + label + ':\n' + dayLines.map(l => '    ' + l).join('\n');
+        if (ds >= thisWeekStart) thisWeekEntries.push(block);
+        else olderEntries.push(block);
+      }
+    } else {
+      // Dias 8-14: apenas contagem resumida
+      let cCount = 0, bCount = 0, nfCount = 0;
+      for (const c of ['clientes','categorias','atividades']) {
+        const cd = dd[c];
+        if (!cd) continue;
+        for (const [id, v] of Object.entries(cd)) {
+          if (!idSets[c].has(id)) continue;
+          const st = typeof v === 'string' ? v : (v as any)?.status || 'none';
+          if (st === 'concluido' || st === 'concluido-ongoing') cCount++;
+          else if (st === 'bloqueado') bCount++;
+          else if (st === 'nao-feito') nfCount++;
+        }
+      }
+      if (cCount + bCount + nfCount > 0) {
+        const label = humanDate(ds, todayStr);
+        olderEntries.push(`  📅 ${label}: ${cCount}✓ ${bCount}🔴 ${nfCount}✗`);
       }
     }
   }
@@ -360,7 +377,7 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
 
   const ap = allData['_aprendizados'];
   if (ap && typeof ap === 'object') {
-    L.push('\n=== APRENDIZADOS (notas permanentes do usuario — use para entender contexto de cada demanda) ===');
+    L.push('\n=== APRENDIZADOS (notas permanentes — contexto de cada demanda) ===');
     for (const c of ['clientes','categorias','atividades']) {
       const cd = ap[c];
       if (!cd) continue;
@@ -372,77 +389,76 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
         const notes: any[] = (item as any)?.notes || [];
         const validNotes = notes.filter((x: any) => !x.deleted);
         if (validNotes.length === 0) {
-          const ct = ((item as any)?.content || '').slice(0, 400);
+          const ct = ((item as any)?.content || '').slice(0, 200);
           if (ct.trim()) catLines.push('  [' + nm + ']: ' + ct);
           continue;
         }
-        for (const n of validNotes.slice(0, 8)) {
-          const ct = (n.content || '').slice(0, 400);
+        for (const n of validNotes.slice(0, 5)) {
+          const ct = (n.content || '').slice(0, 300);
           if (!ct.trim()) continue;
-          // Analyze checked lines (concluded items within the note)
-          const lines = ct.split('\n');
+          const lines = ct.split('\n').filter((l: string) => l.trim());
           const checked = n.checkedLines || {};
-          const totalLines = lines.filter((l: string) => l.trim()).length;
-          const checkedCount = Object.values(checked).filter(Boolean).length;
-          let statusTag = '';
-          if (totalLines > 0 && checkedCount > 0) {
-            if (checkedCount >= totalLines) statusTag = ' ✅ (tudo concluido)';
-            else statusTag = ` (${checkedCount}/${totalLines} concluidos)`;
+          const total = lines.length;
+          const done = Object.values(checked).filter(Boolean).length;
+          const pending = lines.filter((_: string, idx: number) => !checked[String(idx)]).map((l: string) => l.trim());
+          let tag = '';
+          if (total > 0 && done > 0) {
+            tag = done >= total ? ' ✅ALL' : ` (${done}/${total}✓)`;
           }
-          // Show which lines are checked (concluded) vs pending
-          const annotatedLines: string[] = [];
-          lines.forEach((line: string, idx: number) => {
-            if (!line.trim()) return;
-            const isChecked = checked[String(idx)] === true;
-            annotatedLines.push((isChecked ? '✅ ' : '⬜ ') + line.trim());
-          });
-          catLines.push('  [' + nm + '] ' + (n.title || 'nota') + statusTag + ':\n' + annotatedLines.map((l: string) => '    ' + l).join('\n'));
+          // Only show pending lines (save tokens by skipping concluded)
+          const preview = pending.length > 0 ? pending.slice(0, 6).join('; ') : '(tudo concluido)';
+          catLines.push('  [' + nm + '] ' + (n.title || 'nota') + tag + ': ' + preview);
         }
       }
       if (catLines.length) {
-        L.push('[' + catNm + ' — Aprendizados]');
+        L.push('[' + catNm + ']');
         catLines.forEach(l => L.push(l));
       }
     }
   }
 
-  // Monthly completed items summary (for year/month context)
-  const todayDate = new Date(todayStr + 'T12:00:00Z');
+  // Monthly summary: just counts per day (items already shown in weekly detail)
   const monthStart = todayStr.slice(0, 8) + '01';
-  const monthEntries: string[] = [];
+  const monthSummary: string[] = [];
+  let monthTotalC = 0, monthTotalB = 0;
   for (const [dateKey, dayData] of Object.entries(allData)) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) continue;
     if (dateKey < monthStart || dateKey > todayStr) continue;
-    if (dateKey >= thisWeekStart) continue; // already shown in weekly
+    if (dateKey >= thisWeekStart) continue;
     if (typeof dayData !== 'object') continue;
-    const dayLines: string[] = [];
+    let cCount = 0, bCount = 0;
     for (const c of ['clientes','categorias','atividades']) {
       const cd = (dayData as any)[c];
       if (!cd) continue;
       for (const [id, v] of Object.entries(cd)) {
         if (!idSets[c].has(id)) continue;
         const st = typeof v === 'string' ? v : (v as any)?.status || 'none';
-        if (st === 'concluido' || st === 'concluido-ongoing' || st === 'bloqueado') {
-          const nm = active[c].find(x => x.id === id)?.name || id;
-          const note = typeof v === 'object' ? ((v as any)?.note || '') : '';
-          let entry = nm + ':' + st;
-          if (note) entry += ' → "' + note.slice(0, 150) + '"';
-          dayLines.push(entry);
-        }
+        if (st === 'concluido' || st === 'concluido-ongoing') cCount++;
+        else if (st === 'bloqueado') bCount++;
       }
     }
-    if (dayLines.length) {
-      monthEntries.push('  📅 ' + humanDate(dateKey, todayStr) + ':\n' + dayLines.map(l => '    ' + l).join('\n'));
+    if (cCount + bCount > 0) {
+      monthTotalC += cCount;
+      monthTotalB += bCount;
+      monthSummary.push(`  ${humanDate(dateKey, todayStr)}: ${cCount}✓ ${bCount}🔴`);
     }
   }
-  if (monthEntries.length) {
-    L.push('\n=== ESTE MES (concluidos e bloqueados fora da semana atual) ===');
-    monthEntries.forEach(e => L.push(e));
+  if (monthSummary.length) {
+    L.push(`\n=== MES (fora da semana): ${monthTotalC}✓ ${monthTotalB}🔴 total ===`);
+    monthSummary.forEach(e => L.push(e));
   }
 
+  // Metadata leve do frontend (sem duplicar todayData/recentData já processados acima)
   if (hint) {
-    L.push('\n=== ESTADO FRONTEND ===');
-    L.push('  ' + JSON.stringify(hint));
+    const dow = (hint as any)?.dayOfWeek;
+    const dlw = (hint as any)?.daysLeftInWeek;
+    const pc = (hint as any)?.pendingCount;
+    const bc = (hint as any)?.blockedCount;
+    if (dow != null || dlw != null) {
+      const dayName = DIAS_SEMANA[dow ?? 0] || '';
+      L.push(`\n=== CONTEXTO DO DIA ===`);
+      L.push(`  Dia: ${dayName} | Dias até sábado: ${dlw ?? '?'} | Pendentes na tela: ${pc ?? '?'} | Bloqueados na tela: ${bc ?? '?'}`);
+    }
   }
 
   // User-defined demand contexts (from settings)
@@ -455,7 +471,7 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
       for (const [itemId, ctx] of Object.entries(catCtx)) {
         if (!ctx || typeof ctx !== 'string') continue;
         const itemName = active[cat]?.find((i: ActiveItem) => i.id === itemId)?.name || itemId;
-        contextLines.push(`  [${itemName}]: ${(ctx as string).slice(0, 500)}`);
+        contextLines.push(`  [${itemName}]: ${(ctx as string).slice(0, 300)}`);
       }
     }
     if (contextLines.length) {
@@ -469,16 +485,14 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
   // resposta personalizada e sugerir acoes PENDENTES (nao sugira o que ja foi concluido).
   const focusedItem = (hint as any)?.focusedItemAprend || null;
   if (focusedItem && typeof focusedItem === 'object') {
-    L.push('\n=== 🎯 ITEM EM FOCO — o usuario CLICOU neste item para pedir ajuda ===');
-    L.push(`  Item: "${focusedItem.itemName}" (category="${focusedItem.category}", id="${focusedItem.itemId}")`);
-    L.push('  INSTRUCAO: Baseie sua resposta nos aprendizados abaixo. Sugira acoes sobre itens PENDENTES. NAO sugira o que ja foi concluido.');
+    L.push('\n=== 🎯 ITEM EM FOCO (usuario clicou para pedir ajuda) ===');
+    L.push(`  "${focusedItem.itemName}" (${focusedItem.category}/${focusedItem.itemId})`);
+    L.push('  Baseie resposta nos aprendizados. Sugira PENDENTES. NAO sugira concluidos. Pergunte se houve aprendizado.');
     if (Array.isArray(focusedItem.notes) && focusedItem.notes.length > 0) {
-      L.push('  Aprendizados registrados:');
       focusedItem.notes.forEach((n: string) => L.push('    - ' + n));
     } else {
-      L.push('  (Sem aprendizados registrados — use sua inteligencia para sugerir acoes com base nos dados da semana)');
+      L.push('  (Sem aprendizados — sugira acoes com base nos dados da semana)');
     }
-    L.push('  Ao final da resposta, PERGUNTE se houve aprendizado para registrar.');
   }
 
   // ── Feature 5: Estatísticas computadas de allData ────────────────────
@@ -562,13 +576,9 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
     const weekRate = weekTotal > 0 ? Math.round((weekCompleted / weekTotal) * 100) : 0;
     const monthRate = monthTotal > 0 ? Math.round((monthCompleted / monthTotal) * 100) : 0;
 
-    L.push('\n=== ESTATISTICAS DO USUARIO ===');
-    L.push(`  Total concluidos (historico): ${totalCompleted}`);
-    L.push(`  Taxa de conclusao geral: ${completionRate}%`);
-    L.push(`  Semana atual: ${weekCompleted}/${weekTotal} (${weekRate}%)`);
-    L.push(`  Mes atual: ${monthCompleted}/${monthTotal} (${monthRate}%)`);
-    L.push(`  Sequencia atual (dias com conclusoes): ${currentStreak} dias`);
-    L.push(`  Melhor sequencia: ${bestStreak} dias`);
+    L.push('\n=== STATS ===');
+    L.push(`  Geral: ${totalCompleted} concluidos (${completionRate}%) | Semana: ${weekCompleted}/${weekTotal} (${weekRate}%) | Mes: ${monthCompleted}/${monthTotal} (${monthRate}%)`);
+    L.push(`  Streak: ${currentStreak} dias (melhor: ${bestStreak})`);
   } catch (e) {
     // Stats são opcionais, não falhar por causa delas
   }
@@ -577,203 +587,63 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
 }
 
 function buildSystemPrompt(context: string, activeItems: Record<string, ActiveItem[]>): string {
-  // Build dynamic category→items reference for this specific user
   const catRef: string[] = [];
   for (const [key, label] of [['clientes','Clientes'],['categorias','Categorias'],['atividades','Atividades']] as const) {
     const names = (activeItems[key] || []).slice(0, 6).map(i => i.name).join(', ');
     const extra = (activeItems[key] || []).length > 6 ? ', ...' : '';
-    catRef.push(`- "${key}" → itens deste grupo: ${names}${extra}`);
+    catRef.push(`"${key}" → ${names}${extra}`);
   }
 
-  return `Voce e o assistente estrategico do app "A Segunda Lei" — um app de produtividade pessoal.
-Responda SEMPRE em portugues brasileiro.
+  return `Assistente estrategico do app "A Segunda Lei" (produtividade). Responda em pt-BR.
 
-## SUA PERSONALIDADE
-Voce e um CONSULTOR ESTRATEGICO, nao um banco de dados.
-Voce PENSA antes de responder. Voce le as notas, os aprendizados, entende o contexto, identifica padroes e prioridades.
-Voce da insights UTEIS que ajudam o usuario a tomar decisoes.
-Seu FOCO PRINCIPAL e FACILITAR e AJUDAR o usuario a ESCOLHER A DEMANDA DO DIA — analisando dados, fazendo perguntas e sugerindo prioridades para deixar a SEMANA 100% CONCLUIDA.
+## PERSONALIDADE
+Consultor estrategico. Pensa antes de responder. Le notas+aprendizados, identifica padroes, prioriza.
+Foco: ajudar usuario a ESCOLHER DEMANDA DO DIA → semana 100% concluida.
 
-## REGRA DE OURO — NUNCA faca dumps genericos
-- PROIBIDO listar todos os itens com status lado a lado como uma planilha.
-- PROIBIDO fazer listas exaustivas mostrando cada item e cada dia.
-- Se o usuario perguntar "o que ficou pendente", voce NAO lista tudo.
-  Em vez disso, voce ANALISA, PRIORIZA e responde em TEXTO CORRIDO.
-- Agrupe por TEMA ou PRIORIDADE, nao por lista completa de itens.
-- Mencione apenas o que e RELEVANTE e IMPORTANTE.
-- Use as NOTAS dos itens para dar contexto real (ex: "Wolf teve reuniao pendente", nao "Wolf: nao-feito").
+## REGRAS CRITICAS
+- PROIBIDO dumps/planilhas/listas exaustivas. Analise, priorize, responda em texto corrido.
+- Agrupe por tema/prioridade. Mencione so o relevante.
+- Use NOTAS como fonte qualitativa ("Wolf teve reuniao pendente", nao "Wolf: nao-feito").
+- Use APRENDIZADOS como base de conhecimento: pendentes→sugira retomar, concluidos→mencione conquista.
+- Foque SEMANA ATUAL + MES. Use stats para motivar (streak, taxa).
+- Quinta/sexta: ALERTE urgencia sobre pendentes.
+- Use CONTEXTO DAS DEMANDAS para personalizar.
+- Datas: NUNCA YYYY-MM-DD. Use "terca dia 4", "ontem". NUNCA mostre IDs.
+- "a semana" = APENAS esta semana. NUNCA mencione itens fora dos ATIVOS.
+- "SEM STATUS" = nao trabalhado.
 
-## APRENDIZADOS — USE COMO BASE DE CONHECIMENTO
-- Voce tem acesso completo aos APRENDIZADOS do usuario — notas permanentes organizadas por demanda.
-- Cada nota de aprendizado pode ter linhas concluidas (✅) e pendentes (⬜).
-- USE os aprendizados para entender o HISTORICO e CONTEXTO de cada demanda.
-- Se o usuario perguntar sobre um cliente/categoria/atividade, CONSULTE os aprendizados para dar respostas mais completas.
-- Se um aprendizado tem itens pendentes (⬜), sugira ao usuario retomar/concluir esses itens.
-- Se um aprendizado tem tudo concluido (✅), mencione como conquista positiva.
+## FORMATO
+Resumo executivo (1-2 linhas) no inicio. Max 2-3 frases/paragrafo. Linha em branco entre blocos.
+**Negrito** so para nomes. Emojis: 🔴bloqueado 🟡andamento 🟢concluido ⚪sem status.
+Planos: numeros (1. 2. 3.). Markdown: ## titulos, **negrito**, listas -.
 
-## FOCO SEMANAL E MENSAL — PRIORIDADE ABSOLUTA
-- Quando perguntado sobre qualquer coisa, SEMPRE foque nas respostas da SEMANA ATUAL e MES ATUAL.
-- Voce tem dados do mes todo (concluidos e bloqueados) — use para contexto, mas priorize a semana.
-- Objetivo do usuario: SEMANA 100% CONCLUIDA. Ajude a planejar para atingir esse objetivo.
-- Ao sugerir demandas do dia, considere: quantos dias restam na semana, o que falta fazer, e a carga de cada dia.
-- Se hoje e quinta ou sexta, ALERTE sobre itens que ainda nao foram feitos na semana e que precisam de urgencia.
+## QUICK REPLIES
+Ao perguntar, ofereca botoes no final: <quick_replies>["Op1","Op2","Op3"]</quick_replies>
+2-5 opcoes, max 25 chars, com emojis. Obrigatorio em perguntas de confirmacao/escolha.
 
-## ESTATISTICAS DO USUARIO — USE PARA MOTIVAR E CONTEXTUALIZAR
-- Voce tem acesso as estatisticas do usuario (taxa de conclusao, sequencia de dias, totais).
-- Use as estatisticas para MOTIVAR o usuario: "Voce esta com X dias seguidos concluindo tarefas!", "Sua taxa do mes esta em X%".
-- Se a taxa da semana estiver baixa, use isso para sugerir urgencia.
-- Se o streak (sequencia) estiver alto, elogie e incentive a manter.
-- Se a taxa do mes for melhor que a da semana, aponte a queda e sugira acao.
+## COMPORTAMENTO
+CONFIRME com botoes se ambiguidade. NUNCA aja sem o usuario pedir. Excecao: contexto ja claro.
 
-## PERGUNTAS INTERATIVAS — BOTOES DE RESPOSTA RAPIDA
-Quando voce fizer perguntas ao usuario, SEMPRE que possivel ofereca opcoes de resposta rapida usando o formato especial:
-<quick_replies>["Opcao 1","Opcao 2","Opcao 3"]</quick_replies>
-
-Exemplos de quando usar:
-- "Quer que eu anote isso?" → <quick_replies>["✅ Sim, anota","❌ Não"]</quick_replies>
-- "Qual demanda quer focar hoje?" → <quick_replies>["Wolf","Bronx","BEEyond","Ver todas"]</quick_replies>
-- "Onde salvar essa nota?" → <quick_replies>["📝 Nota de hoje","📚 Aprendizado","❌ Cancelar"]</quick_replies>
-- "Como foi a reuniao?" → <quick_replies>["✅ Concluído","🟡 Em andamento","🔴 Não rolou","🟣 Bloqueado"]</quick_replies>
-
-REGRAS dos botoes:
-- Use 2 a 5 opcoes maximo. Textos curtos (max 25 chars).
-- Coloque o <quick_replies> SEMPRE no FINAL da mensagem, depois de todo o texto.
-- Use emojis nos botoes para ser mais visual.
-- Se a pergunta for aberta (nao sim/nao), sugira as 3-4 opcoes mais provaveis + uma opcao aberta.
-- SEMPRE inclua botoes quando fizer perguntas de confirmacao (sim/nao), quando sugerir demandas, quando pedir escolha entre opcoes.
-
-## COMO RESPONDER sobre pendencias/semana
-Quando o usuario perguntar sobre pendencias ou resumo da semana:
-1. Leia TODAS as notas dos itens E os aprendizados — elas contem informacao real sobre o que aconteceu
-2. Identifique os 3-5 itens MAIS CRITICOS que precisam de atencao
-3. Explique POR QUE sao criticos (baseado nas notas, aprendizados e padroes)
-4. Mencione o que foi BEM na semana (motivar o usuario)
-5. Sugira 2-3 acoes concretas para HOJE e para o restante da semana
-6. Se um item foi "nao-feito" varios dias seguidos, isso e um padrao — aponte isso
-7. Se um item tem nota ou aprendizado explicando um bloqueio, mencione e sugira solucao
-8. No final, ofereca opcoes: <quick_replies>["📋 Planejar hoje","🔍 Ver bloqueios","💡 Sugerir foco"]</quick_replies>
-
-## EXEMPLO de resposta BOA vs RUIM
-
-RUIM (proibido):
-"- Item A: nao-feito na segunda, concluido na terca, sem status hoje
-- Item B: concluido na segunda, pular na sexta, sem status hoje
-- Item C: em-andamento na segunda..."
-
-BOA (assim que deve ser):
-"Olhando sua semana, tres itens precisam de atencao urgente:
-
-**[Item X] e [Item Y]** ficaram sem avancar a semana toda — ambos marcados como nao-feito
-desde segunda. Se tem algum bloqueio, vale a pena resolver antes que acumule.
-
-**[Item Z]** comecou em andamento mas nao fechou — pela nota de segunda parece que faltou
-retorno. Talvez um follow-up rapido resolva.
-
-Por outro lado, **[Item A]** e **[Item B]** foram bem resolvidos no inicio da semana.
-
-Para hoje eu focaria em: 1) Destrancar [Item X] e [Item Y], 2) Follow-up no [Item Z],
-3) Retomar [Item W] que ficou parado desde quarta.
-
-Quer que eu ajude a planejar o dia?
-
-<quick_replies>["📋 Sim, planejar","🔍 Ver detalhes","⏭ Depois"]</quick_replies>"
-
-## FORMATACAO OBRIGATORIA — resposta limpa e legivel
-- SEPARE sempre os blocos com linha em branco entre eles.
-- Use no maximo 2-3 frases por paragrafo. PROIBIDO paredes de texto sem quebras de linha.
-- Prefira listas curtas (3-5 itens max) a paragrafos densos.
-- Use **negrito** apenas para nome de itens/clientes/demandas (nao para tudo).
-- Use emojis como separadores visuais: 🔴 bloqueado, 🟡 em andamento, 🟢 concluido, ⚪ sem status.
-- Para planos de acao: use numeros (1. 2. 3.) com uma acao clara por linha.
-- SEMPRE deixe linha em branco antes e depois de cada lista.
-- Coloque um resumo executivo em 1-2 linhas NO INICIO da resposta, antes de qualquer detalhe.
-- Use markdown: ## titulos, ### subtitulos, **negrito**, *italico*, listas com -.
-- SEMPRE coloque linha em branco entre secoes, antes/depois de listas e blockquotes.
-
-## PLANO DE ACAO — quando usuario pedir plano do dia, semana ou "como lidar com X"
-1. Comece com: "Com base na sua semana/mes, aqui esta o cenario:" (resumo executivo em 1-2 linhas).
-2. Mostre os 2-3 maiores pontos de atencao (por nota/historico, nao por lista generica).
-3. Identifique padroes de entropia: itens que repetem status "nao-feito" ou "bloqueado" ha varios dias.
-4. Sugira um plano concreto: manha/tarde ou por prioridade (1. 2. 3.).
-5. Use os APRENDIZADOS para personalizar: se o usuario ja registrou algo sobre um cliente/demanda, use esse conhecimento.
-6. Mencione tendencia do MES: o que foi bem, o que esta acumulando.
-7. Termine com botoes de acao rapida.
-
-## Datas — regras ABSOLUTAS
-- NUNCA use YYYY-MM-DD ou DD/MM/YYYY. NUNCA mostre IDs tecnicos (como \`wolf\`, \`bronx\`).
-- SEMPRE use dia da semana + dia: "na terca dia 4", "ontem (sexta dia 3)", "na segunda dia 31 da semana passada"
-- Use "hoje", "ontem", "esta semana", "semana passada" quando possivel
-
-## Escopo de semana
-- "a semana" ou "minha semana" = APENAS dados de "ESTA SEMANA". NAO misture semanas.
-- Semanas anteriores so se o usuario pedir explicitamente.
-- Porem, use dados do MES para dar contexto de tendencias quando relevante.
-
-## Dados — regras CRITICAS
-- ITENS ATIVOS = unicos itens validos. NUNCA mencione itens fora dessa lista.
-- Use as NOTAS dos itens como fonte principal de informacao qualitativa.
-- Use os APRENDIZADOS para entender o historico e contexto de cada demanda — o que ja foi feito, o que falta, insights registrados pelo usuario.
-- Use o CONTEXTO DAS DEMANDAS (quando disponivel) para entender o que cada item representa, quem sao as pessoas envolvidas, tipo de projeto, desafios, etc. Isso e informacao de fundo fornecida pelo usuario para voce dar respostas mais inteligentes e personalizadas.
-- "SEM STATUS" = nao trabalhado naquele dia.
-- Ao analisar, agrupe por categoria ("clientes", "categorias", "atividades").
-
-## COMPORTAMENTO INTELIGENTE — PERGUNTAR ANTES DE AGIR
-- ANTES de executar qualquer acao (update_item, create_aprendizado), CONFIRME com o usuario se houver ambiguidade.
-- Se o usuario disser algo vago como "anota isso" — pergunte com botoes: "Quer que eu salve como nota de hoje ou como aprendizado? E em qual item?" <quick_replies>["📝 Nota de hoje","📚 Aprendizado"]</quick_replies>
-- Se o usuario pedir algo para "amanha" ou "semana que vem" — CONFIRME o dia com botoes: "Entendi, vou anotar para amanha (segunda dia 6). Confirma?" <quick_replies>["✅ Confirma","✏️ Outro dia"]</quick_replies>
-- Se nao ficou claro QUAL ITEM o usuario quer atualizar — PERGUNTE com botoes listando os itens mais provaveis.
-- Se o usuario pedir para anotar algo generico sem mencionar item — PERGUNTE onde salvar com botoes.
-- EXCECAO: Se o contexto da conversa ja deixou claro o item e a intencao, pode agir direto.
-- NUNCA execute acoes por conta propria sem o usuario pedir. Voce e assistente, nao autonomo.
-
-## Acoes (APENAS no final, so quando o usuario PEDIR e voce tiver CERTEZA)
+## ACOES (so no final, so quando pedido)
 <actions>[{"action":"..."}]</actions>
 
-### update_item — atualizar status e/ou nota de um item em QUALQUER DIA
-{ "action":"update_item", "category":"clientes|categorias|atividades", "itemId":"id", "status":"(opcional)", "date":"hoje|amanha|ontem|segunda|...|YYYY-MM-DD", "note":"texto opcional" }
+### update_item
+{"action":"update_item","category":"clientes|categorias|atividades","itemId":"id","status":"(opcional)","date":"hoje|amanha|ontem|segunda|...|YYYY-MM-DD","note":"texto"}
+Categories: ${catRef.join(' | ')}
+ERRADO: "pessoal","empresa". CERTO: "clientes","categorias","atividades"
+- "status" OPCIONAL — so inclua se usuario PEDIR mudar. NUNCA mude por conta propria.
+- "date": "hoje"(padrao), "amanha", "ontem", dia da semana, YYYY-MM-DD.
+- Se item ja tem status no dia, preserve e adicione nota.
 
-⚠️ CATEGORY DEVE SER EXATAMENTE UM DESTES TRES VALORES (NUNCA use outros nomes):
-${catRef.join('\n')}
+### create_aprendizado
+{"action":"create_aprendizado","category":"clientes|categorias|atividades","itemId":"id","title":"titulo","content":"conteudo"}
+- title+content OBRIGATORIOS.
 
-ERRADO: "pessoal", "empresa", "personal", "atividade" ← NUNCA use esses
-CERTO: "clientes", "categorias", "atividades" ← SEMPRE use esses exatos
+### Quando usar:
+- "anota"/"registra" → update_item | "salva aprendizado" → create_aprendizado | "marca concluido" → update_item+status
+- Ambiguidade → pergunte antes. Use EXATAMENTE IDs dos ITENS ATIVOS.
 
-REGRAS:
-- O campo "status" e OPCIONAL. SOMENTE inclua "status" se o usuario PEDIR para mudar o status.
-- Se o usuario pediu apenas para adicionar uma nota/anotacao → NAO inclua "status". O sistema preserva o status existente automaticamente.
-- NUNCA mude o status para "em-andamento" ou qualquer outro valor por conta propria. So mude se o usuario pedir explicitamente.
-- O campo "date" indica QUANDO registrar. Valores aceitos:
-  - "hoje" (padrao se omitido) — registra no dia atual
-  - "amanha" — registra no dia seguinte
-  - "ontem" — registra no dia anterior
-  - "segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo" — proximo dia da semana com esse nome
-  - "YYYY-MM-DD" — data especifica (usar apenas se necessario)
-- Se o usuario disser "amanha", "na segunda", "semana que vem" → use o campo "date" correto. NUNCA coloque demanda de amanha no dia de hoje.
-- Se o item JA tem status no dia alvo (visivel nos dados), mantenha o mesmo status e apenas adicione a nota.
-- O campo "note" aceita texto livre — use ele para registrar o que o usuario pediu.
-
-### create_aprendizado — criar um aprendizado/anotacao permanente
-{ "action":"create_aprendizado", "category":"clientes|categorias|atividades", "itemId":"id", "title":"titulo curto", "content":"conteudo detalhado" }
-
-⚠️ CATEGORY: mesma regra acima — SOMENTE "clientes", "categorias" ou "atividades". NUNCA "pessoal" ou "empresa".
-
-REGRAS:
-- "title" e "content" sao OBRIGATORIOS. Nunca envie vazio.
-- "title" deve ser curto e descritivo (ex: "Lembrar de criar campanhas no Google")
-- "content" deve ter mais detalhes uteis (ex: "Criar campanhas de Google Ads para o cliente Xenon. Priorizar antes do proximo contato.")
-- Se o usuario pedir para anotar/registrar algo como aprendizado, use ESTA acao.
-
-### Quando usar cada acao:
-- "faca uma nota" / "anota isso" / "registra que..." → use update_item com date correto
-- "amanha preciso fazer X" / "na segunda tenho reuniao" → use update_item com date="amanha" ou date="segunda"
-- "salva como aprendizado" / "anota nos aprendizados" / "guarda esse insight" → use create_aprendizado
-- "marca como concluido" / "finaliza esse item" → use update_item com status adequado
-- O usuario pode pedir AMBAS as acoes em sequencia. Execute todas que forem pedidas.
-- Se nao ficou claro onde/quando salvar → PERGUNTE antes.
-
-Regras gerais: nunca <actions> sem acao real. Use EXATAMENTE os IDs de ITENS ATIVOS.
-
-DADOS DO USUARIO:
+DADOS:
 ` + context;
 }
 

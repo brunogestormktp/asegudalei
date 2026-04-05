@@ -558,9 +558,9 @@ Object.assign(HabitTrackerApp.prototype, {
                     }
                 }
 
-                // ── DADOS RECENTES: últimos 7 dias para contexto da semana ──
+                // ── DADOS RECENTES: últimos 5 dias para contexto da semana ──
                 recentData = {};
-                for (let i = 1; i <= 7; i++) {
+                for (let i = 1; i <= 5; i++) {
                     const d = new Date(todayStr + 'T12:00:00Z');
                     d.setUTCDate(d.getUTCDate() - i);
                     const ds = d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
@@ -575,7 +575,7 @@ Object.assign(HabitTrackerApp.prototype, {
                             const st = typeof raw === 'string' ? raw : (raw?.status || 'none');
                             const note = typeof raw === 'object' ? (raw?.note || '') : '';
                             if (st !== 'none' || note) {
-                                recentData[ds][cat][itemId] = { status: st, note: note.slice(0, 200) };
+                                recentData[ds][cat][itemId] = { status: st, note: note.slice(0, 100) };
                             }
                         }
                     }
@@ -594,7 +594,7 @@ Object.assign(HabitTrackerApp.prototype, {
                         const validNotes = notes.filter(n => !n.deleted && n.content && n.content.trim());
                         if (validNotes.length > 0) {
                             const entries = [];
-                            for (const n of validNotes.slice(0, 10)) {
+                            for (const n of validNotes.slice(0, 6)) {
                                 const checked = n.checkedLines || {};
                                 const noteLines = n.content.split('\n').filter(l => l.trim());
                                 const pending = [], done = [];
@@ -603,8 +603,8 @@ Object.assign(HabitTrackerApp.prototype, {
                                     else pending.push(line.trim());
                                 });
                                 let entry = (n.title || 'sem título');
-                                if (pending.length) entry += ' | Pendente: ' + pending.join('; ');
-                                if (done.length) entry += ' | Concluído: ' + done.join('; ');
+                                if (pending.length) entry += ' | Pendente: ' + pending.slice(0, 5).join('; ');
+                                if (done.length) entry += ' | Concluído(' + done.length + ')';
                                 entries.push(entry);
                             }
                             focusedItemAprend = {
