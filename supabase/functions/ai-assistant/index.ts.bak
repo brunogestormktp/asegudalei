@@ -1,0 +1,313 @@
+// Edge Function: ai-assistant
+// Recebe mensagem do usuário, lê todos os dados do user_data, monta contexto
+// e chama OpenRouter (Gemini 2.5 Flash) para gerar resposta.
+// O token da IA nunca vai ao frontend — fica neste servidor.
+// Rate limit: 30 req / 60s por user_id (sliding window).
+
+import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+// Rate limiting: sliding window — mapa user_id → array de timestamps
+const rateLimitMap = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW = 60_000; // 60 segundos
+const RATE_LIMIT_MAX    = 30;     // máximo de requests por janela
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin':  '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Max-Age':       '86400',
+};
+
+serve(async (req: Request) => {
+  // CORS preflight — must return 204 with all headers
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  if (req.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, 405);
+  }
+
+  try {
+    // ── Auth: extrair e validar JWT ──────────────────────────────────────
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return json({ error: 'Missing or invalid Authorization header' }, 401);
+    }
+    const jwt = authHeader.replace('Bearer ', '');
+
+    const supabaseUrl        = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const anonKey            = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+    const supabaseUser = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
+    });
+
+    const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
+    if (userError || !user) {
+      return json({ error: 'Invalid token' }, 401);
+    }
+    const userId = user.id;
+
+    // ── Rate limit (sliding window) ──────────────────────────────────────
+    const now  = Date.now();
+    const hits = (rateLimitMap.get(userId) || []).filter(t => now - t < RATE_LIMIT_WINDOW);
+    if (hits.length >= RATE_LIMIT_MAX) {
+      const oldest     = hits[0];
+      const retryAfter = Math.ceil((RATE_LIMIT_WINDOW - (now - oldest)) / 1000);
+      return new Response(JSON.stringify({ error: 'Rate limited', retryAfter }), {
+        status: 429,
+        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'Retry-After': String(retryAfter) },
+      });
+    }
+    hits.push(now);
+    rateLimitMap.set(userId, hits);
+
+    // ── Parse body ───────────────────────────────────────────────────────
+    let body: { message?: string; history?: unknown[]; context_hint?: unknown };
+    try {
+      body = await req.json();
+    } catch {
+      return json({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const message      = String(body.message || '').trim();
+    const rawHistory   = Array.isArray(body.history) ? body.history : [];
+    const contextHint  = body.context_hint || null;
+
+    if (!message) {
+      return json({ error: 'message is required' }, 400);
+    }
+
+    // Sanitizar histórico: aceitar apenas role user/assistant + content string
+    const history = rawHistory
+      .filter((m: any) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+      .map((m: any) => ({ role: m.role as string, content: m.content as string }))
+      .slice(-20);
+
+    // ── Ler dados do usuário via service role ────────────────────────────
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data: userData, error: dataError } = await supabaseAdmin
+      .from('user_data')
+      .select('data')
+      .eq('user_id', userId)
+      .single();
+
+    if (dataError || !userData) {
+      return json({ error: 'User data not found' }, 404);
+    }
+
+    const allData   = userData.data || {};
+    const todayStr  = formatDateStr(new Date());
+
+    // ── Montar contexto compacto ─────────────────────────────────────────
+    const context       = buildContext(allData, todayStr, contextHint);
+    const systemPrompt  = buildSystemPrompt(context);
+
+    // ── Chamar OpenRouter (Gemini 2.5 Flash) ────────────────────────────
+    const openrouterKey = Deno.env.get('OPENROUTER_API_KEY');
+    if (!openrouterKey) {
+      return json({ error: 'OpenRouter key not configured' }, 500);
+    }
+
+    const orResp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openrouterKey}`,
+        'Content-Type':  'application/json',
+        'HTTP-Referer':  'https://fajbxgvqptrnynpqkitx.supabase.co',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...history,
+          { role: 'user', content: message },
+        ],
+        max_tokens:  1500,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!orResp.ok) {
+      const errText = await orResp.text().catch(() => '');
+      console.error('OpenRouter error:', orResp.status, errText);
+      return json({ error: 'AI service error', detail: orResp.status }, 502);
+    }
+
+    const orData = await orResp.json();
+    const rawText: string = orData?.choices?.[0]?.message?.content || '';
+
+    // ── Extrair ações do texto ───────────────────────────────────────────
+    const { cleanText, actions } = parseActionsFromReply(rawText);
+
+    return json({ reply: cleanText, actions });
+
+  } catch (err) {
+    console.error('Edge Function error:', err);
+    return json({ error: 'Internal server error' }, 500);
+  }
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+  });
+}
+
+function formatDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Gera uma string compacta com os dados relevantes do usuário
+function buildContext(allData: Record<string, any>, todayStr: string, contextHint: any): string {
+  const lines: string[] = [];
+
+  // ── Hoje ────────────────────────────────────────────────────────────
+  const todayData = allData[todayStr];
+  if (todayData && typeof todayData === 'object') {
+    lines.push(`=== HOJE (${todayStr}) ===`);
+    for (const cat of ['clientes', 'categorias', 'atividades']) {
+      const catData = todayData[cat];
+      if (!catData || typeof catData !== 'object') continue;
+      const catLabel = cat === 'clientes' ? 'Clientes' : cat === 'categorias' ? 'Empresa' : 'Pessoal';
+      lines.push(`[${catLabel}]`);
+      for (const [itemId, item] of Object.entries(catData)) {
+        const status = typeof item === 'string' ? item : (item as any)?.status || 'none';
+        const note   = typeof item === 'object' ? ((item as any)?.note || '') : '';
+        const links  = typeof item === 'object' ? ((item as any)?.links || '') : '';
+        let line = `  ${itemId}: ${status}`;
+        if (note) line += ` | nota: ${note.slice(0, 120)}`;
+        if (links) line += ` | links: ${links.slice(0, 80)}`;
+        lines.push(line);
+      }
+    }
+  } else {
+    lines.push(`=== HOJE (${todayStr}): sem dados ainda ===`);
+  }
+
+  // ── Últimos 14 dias (resumo sem notas) ──────────────────────────────
+  lines.push('\n=== HISTÓRICO (14 dias) ===');
+  for (let i = 1; i <= 14; i++) {
+    const d = new Date(todayStr + 'T12:00:00Z');
+    d.setDate(d.getDate() - i);
+    const ds = formatDateStr(d);
+    const dayData = allData[ds];
+    if (!dayData || typeof dayData !== 'object') continue;
+
+    const summary: string[] = [];
+    for (const cat of ['clientes', 'categorias', 'atividades']) {
+      const catData = dayData[cat];
+      if (!catData) continue;
+      for (const [itemId, item] of Object.entries(catData)) {
+        const status = typeof item === 'string' ? item : (item as any)?.status || 'none';
+        if (status && status !== 'none') summary.push(`${itemId}:${status}`);
+      }
+    }
+    if (summary.length > 0) {
+      lines.push(`  ${ds}: ${summary.join(', ')}`);
+    }
+  }
+
+  // ── Aprendizados (últimas 20 notas) ─────────────────────────────────
+  const aprendizados = allData['_aprendizados'];
+  if (aprendizados && typeof aprendizados === 'object') {
+    lines.push('\n=== APRENDIZADOS ===');
+    let count = 0;
+    outer: for (const cat of ['clientes', 'categorias', 'atividades']) {
+      const catData = aprendizados[cat];
+      if (!catData) continue;
+      for (const [itemId, item] of Object.entries(catData)) {
+        if (count >= 20) break outer;
+        const notes: any[] = (item as any)?.notes || [];
+        if (notes.length > 0) {
+          for (const note of notes.filter((n: any) => !n.deleted).slice(0, 3)) {
+            const content = (note.content || '').slice(0, 200);
+            if (content.trim()) {
+              lines.push(`  [${cat}/${itemId}] ${note.title || 'nota'}: ${content}`);
+              count++;
+            }
+          }
+        } else {
+          // formato legado
+          const content = ((item as any)?.content || '').slice(0, 200);
+          if (content.trim()) {
+            lines.push(`  [${cat}/${itemId}]: ${content}`);
+            count++;
+          }
+        }
+      }
+    }
+  }
+
+  // ── Settings (nomes dos itens) ───────────────────────────────────────
+  const settings = allData['_settings'];
+  if (settings && typeof settings === 'object') {
+    lines.push('\n=== CONFIGURAÇÕES ===');
+    for (const cat of ['clientes', 'categorias', 'atividades']) {
+      const items = settings[cat];
+      if (!Array.isArray(items)) continue;
+      const names = items.map((it: any) => `${it.id}="${it.name}"`).join(', ');
+      lines.push(`  ${cat}: ${names}`);
+    }
+  }
+
+  // ── Context hint (estado em memória do frontend) ─────────────────────
+  if (contextHint) {
+    lines.push(`\n=== ESTADO ATUAL ===`);
+    lines.push(`  ${JSON.stringify(contextHint)}`);
+  }
+
+  return lines.join('\n');
+}
+
+function buildSystemPrompt(context: string): string {
+  return `Você é o assistente do app "A Segunda Lei" — um app de produtividade pessoal.
+Responda em português. Seja direto e conciso, a menos que o usuário peça detalhes.
+Use marcadores (•) para listas quando necessário. Não use markdown com ** ou # — texto simples.
+
+Seu objetivo principal: ajudar o usuário a concluir as tarefas do dia, sugerir prioridades,
+desbloquear impedimentos, planejar a semana, criar notas de aprendizados e responder perguntas.
+
+Você pode executar ações no app. Quando for executar uma ação, inclua NO FINAL da resposta:
+<actions>[{"action":"..."}]</actions>
+
+Ações disponíveis:
+- update_item: atualiza status/nota de um item da aba Hoje
+  { "action": "update_item", "category": "clientes|categorias|atividades", "itemId": "id_do_item", "status": "concluido|em-andamento|bloqueado|parcialmente|aguardando|nao-feito|pular|prioridade", "note": "texto opcional" }
+- create_aprendizado: cria uma nota de aprendizado para um item
+  { "action": "create_aprendizado", "category": "clientes|categorias|atividades", "itemId": "id_do_item", "title": "título da nota", "content": "conteúdo da nota" }
+
+Regras:
+- Nunca inclua <actions> se não for executar nenhuma ação.
+- Só execute ações quando o usuário pedir explicitamente ou confirmar.
+- Ao sugerir que vai executar uma ação, aguarde confirmação se não foi pedido diretamente.
+- Os IDs dos itens estão na seção CONFIGURAÇÕES dos dados abaixo.
+
+DADOS DO USUÁRIO:
+${context}`;
+}
+
+function parseActionsFromReply(text: string): { cleanText: string; actions: unknown[] } {
+  const match = text.match(/<actions>([\s\S]*?)<\/actions>/);
+  if (!match) return { cleanText: text.trim(), actions: [] };
+
+  const cleanText = text.replace(/<actions>[\s\S]*?<\/actions>/, '').trim();
+  let actions: unknown[] = [];
+  try {
+    const parsed = JSON.parse(match[1].trim());
+    actions = Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    actions = [];
+  }
+  return { cleanText, actions };
+}

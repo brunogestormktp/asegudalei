@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="../css/ai-assistant.css">
+    <title>AI Assistant</title>
+</head>
+<body>
+    <div id="ai-assistant-tab" class="ai-assistant-tab">
+        <header class="ai-assistant-header">
+            <h1>AI Assistant</h1>
+            <button id="close-assistant" class="close-button">✖</button>
+        </header>
+        <div id="chat-container" class="chat-container">
+            <div id="messages" class="messages"></div>
+            <div id="typing-indicator" class="typing-indicator hidden">AI is typing...</div>
+        </div>
+        <div class="input-area">
+            <input type="text" id="user-input" class="user-input" placeholder="Type your message..." />
+            <button id="send-button" class="send-button">Send</button>
+        </div>
+        <div class="quick-actions">
+            <button class="quick-action" data-action="action1">Action 1</button>
+            <button class="quick-action" data-action="action2">Action 2</button>
+            <button class="quick-action" data-action="action3">Action 3</button>
+        </div>
+    </div>
+    <script src="../js/features/app-ai-assistant.js"></script>
+</body>
+</html>

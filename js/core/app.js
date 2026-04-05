@@ -103,28 +103,57 @@ class HabitTrackerApp {
     }
 
     // ── Rollover de meia-noite ────────────────────────────────────────────
-    async _markPendingAsNotDone(dateStr) {
+    // Marca itens não concluídos como "não feito" e passa para o próximo dia
+    async _markPendingAsNotDone(dateStr, carryToDateStr) {
         if (!StorageManager.syncReady) {
             console.warn('⛔ Rollover bloqueado: syncReady=false');
             return;
         }
+        // Status considerados "finalizados" — não são passados para o dia seguinte
+        const doneStatuses = new Set(['concluido', 'concluido-ongoing', 'nao-feito', 'pular']);
+
         const categories = [
             { key: 'clientes',   items: APP_DATA.clientes   },
             { key: 'categorias', items: APP_DATA.categorias },
             { key: 'atividades', items: APP_DATA.atividades },
         ];
         let changed = false;
+        let carried = 0;
         for (const { key, items } of categories) {
             for (const item of (items || [])) {
                 const data = await StorageManager.getItemStatus(dateStr, key, item.id);
-                if (!data.status || data.status === 'none') {
-                    await StorageManager.saveItemStatus(dateStr, key, item.id, 'nao-feito', data.note || '');
-                    changed = true;
+                const status = data.status || 'none';
+
+                // Itens já finalizados — nenhuma ação necessária
+                if (doneStatuses.has(status)) continue;
+
+                // --- Passar para o próximo dia (carry-over) ---
+                // Passa se: tem status ativo (não-none) OU tem nota escrita
+                const hasNote = !!(data.note && data.note.trim());
+                if (carryToDateStr && (status !== 'none' || hasNote)) {
+                    // Só copia se o item ainda não tem status no dia seguinte
+                    const nextData = await StorageManager.getItemStatus(carryToDateStr, key, item.id);
+                    if (!nextData.status || nextData.status === 'none') {
+                        const carryNote = data.note || '';
+                        // Se tinha status ativo, mantém; se era none com nota, passa como none
+                        const carryStatus = (status !== 'none') ? status : 'none';
+                        await StorageManager.saveItemStatus(
+                            carryToDateStr, key, item.id, carryStatus, carryNote
+                        );
+                        carried++;
+                    }
                 }
+
+                // Marcar como "não feito" no dia anterior
+                await StorageManager.saveItemStatus(dateStr, key, item.id, 'nao-feito', data.note || '');
+                changed = true;
             }
         }
         if (changed) {
-            console.log(`⏰ Rollover meia-noite: itens sem status do dia ${dateStr} marcados como não feito.`);
+            console.log(`⏰ Rollover meia-noite: itens não concluídos do dia ${dateStr} marcados como não feito.`);
+        }
+        if (carried > 0) {
+            console.log(`⏰ Rollover: ${carried} item(ns) passado(s) para ${carryToDateStr}.`);
         }
     }
 
@@ -135,7 +164,7 @@ class HabitTrackerApp {
         const lastDate = localStorage.getItem(lastKey);
 
         if (lastDate && lastDate !== todayStr) {
-            await this._markPendingAsNotDone(lastDate);
+            await this._markPendingAsNotDone(lastDate, todayStr);
         }
         localStorage.setItem(lastKey, todayStr);
     }
@@ -152,9 +181,10 @@ class HabitTrackerApp {
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
             const yesterdayStr = this.getDateString(yesterday);
+            const todayStr = this.getDateString(new Date());
 
-            await this._markPendingAsNotDone(yesterdayStr);
-            localStorage.setItem('ht-last-active-date', this.getDateString(new Date()));
+            await this._markPendingAsNotDone(yesterdayStr, todayStr);
+            localStorage.setItem('ht-last-active-date', todayStr);
 
             if (this.currentView === 'today') {
                 this.currentDate = new Date();
@@ -234,6 +264,8 @@ class HabitTrackerApp {
             if (typeof Aprendizados !== 'undefined') Aprendizados.onShow();
         } else if (this.currentView === 'ranking') {
             if (typeof this.renderRankingView === 'function') this.renderRankingView();
+        } else if (this.currentView === 'ai') {
+            if (typeof this.renderAIView === 'function') this.renderAIView();
         }
     }
 
@@ -308,6 +340,11 @@ class HabitTrackerApp {
             document.getElementById('btnRanking').classList.add('active');
             window.scrollTo(0, 0);
             if (typeof this.renderRankingView === 'function') await this.renderRankingView();
+        } else if (view === 'ai') {
+            document.getElementById('aiView').classList.remove('hidden');
+            document.getElementById('btnAI').classList.add('active');
+            window.scrollTo(0, 0);
+            if (typeof this.renderAIView === 'function') this.renderAIView();
         }
     }
 

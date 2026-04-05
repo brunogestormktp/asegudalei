@@ -154,6 +154,10 @@
                     </svg>
                     <span>Ranking</span>
                 </button>
+                <button class="btn-nav-header" id="btnAI" data-view="ai">
+                    <span style="font-size:18px;line-height:1">✨</span>
+                    <span>Assistente</span>
+                </button>
                 <button class="btn-nav-header btn-settings" id="btnSettings" title="Configurações">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"></circle>
@@ -441,6 +445,42 @@
                     <div class="ranking-pagination" id="rankingPagination"></div>
                 </div>
             </div>
+            <!-- AI Assistant View -->
+            <div class="view hidden" id="aiView">
+              <!-- History sidebar overlay -->
+              <div class="ai-history-overlay" id="aiHistoryOverlay"></div>
+              <div class="ai-history-drawer" id="aiHistoryDrawer">
+                <div class="ai-history-header">
+                  <h3 class="ai-history-title">💬 Conversas</h3>
+                  <button class="ai-history-close" id="aiHistoryClose">✕</button>
+                </div>
+                <div class="ai-history-list" id="aiHistoryList"></div>
+              </div>
+
+              <div class="ai-container">
+                <div class="ai-header">
+                  <div class="ai-header-row">
+                    <button class="ai-btn-history" id="aiOpenHistory" title="Histórico de conversas">☰</button>
+                    <div class="ai-header-text">
+                      <h2 class="ai-title">✨ Assistente</h2>
+                      <p class="ai-subtitle">Pergunte sobre seu dia, peça sugestões ou deixe-me atualizar suas tarefas.</p>
+                    </div>
+                    <button class="ai-btn-new-chat" id="aiNewChat" title="Nova conversa">＋</button>
+                  </div>
+                </div>
+                <div class="ai-quick-actions">
+                  <button class="ai-quick-btn" data-prompt="Analise meu dia de hoje, liste o que falta fazer e sugira uma ordem de prioridade.">📋 Planejar meu dia</button>
+                  <button class="ai-quick-btn" data-prompt="Quais itens ainda estão sem status hoje? Liste todos separados por categoria.">🔍 Ver pendências</button>
+                  <button class="ai-quick-btn" data-prompt="Faça um resumo da minha semana até agora com tendências e destaques.">📊 Resumo da semana</button>
+                  <button class="ai-quick-btn" data-prompt="Quais clientes preciso priorizar hoje e por quê?">👥 Foco em clientes</button>
+                </div>
+                <div class="ai-messages" id="aiMessages"></div>
+                <div class="ai-input-area">
+                  <textarea id="aiInput" class="ai-input" placeholder="Pergunte algo ou digite / para mencionar um item..." rows="2"></textarea>
+                  <button class="ai-send-btn" id="aiSendBtn">➤</button>
+                </div>
+              </div>
+            </div>
         </main>
 
         <!-- Item Edit Modal -->
@@ -566,6 +606,7 @@
     <script src="js/features/app-settings.js"></script>
     <script src="js/features/app-onboarding.js"></script>
     <script src="js/features/app-ranking.js"></script>
+    <script src="js/features/app-ai.js"></script>
     <script src="js/features/app-history.js"></script>
     <script src="js/features/app-week-bar.js"></script>
     <script src="js/features/app-today.js"></script>

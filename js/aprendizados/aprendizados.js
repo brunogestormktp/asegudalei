@@ -54,6 +54,7 @@ const Aprendizados = (() => {
     let _noteSaveTimer = null;
     let _editorMode = 'lines'; // 'lines' | 'text'
     let _pendingOpenNav = null; // nav a aplicar na próxima chamada de onShow
+    let _editorDirty = false; // true enquanto o editor tiver mudanças DOM não sincronizadas
 
     // ─── Configurações de categoria ──────────────────────────────────
     const CATEGORY_COLORS = {
@@ -605,6 +606,7 @@ const Aprendizados = (() => {
 
     // ─── RENDER: Editor ───────────────────────────────────────────────
     function renderEditor() {
+        _editorDirty = false; // reset ao reconstruir editor
         _closeViewer(); // fecha viewer ao trocar de nota
         const panel = document.getElementById('aprendEditorPanel');
         if (!panel) return;
@@ -775,12 +777,14 @@ const Aprendizados = (() => {
         setPlainText(textEl, lineText);
 
         textEl.addEventListener('input', () => {
+            _editorDirty = true;
             _syncLinesAndSave();
         });
 
         textEl.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
+                _editorDirty = true;
                 // inserir nova linha após esta
                 _syncLinesAndSave();
                 const allRows = Array.from(document.querySelectorAll('.aprend-line-row'));
@@ -794,6 +798,7 @@ const Aprendizados = (() => {
                 const text = getPlainText(textEl).replace(/\n/g, '');
                 if (text === '') {
                     e.preventDefault();
+                    _editorDirty = true;
                     const thisRow = textEl.closest('.aprend-line-row');
                     const prev = thisRow.previousElementSibling;
                     if (prev) {
@@ -815,6 +820,7 @@ const Aprendizados = (() => {
 
         textEl.addEventListener('paste', (e) => {
             e.preventDefault();
+            _editorDirty = true;
             const text = e.clipboardData.getData('text/plain');
             // Filtrar linhas em branco do texto colado
             const pasteLines = text.split('\n').filter(l => l.trim() !== '');
@@ -848,6 +854,7 @@ const Aprendizados = (() => {
         deleteBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
         deleteBtn.addEventListener('mousedown', (e) => e.preventDefault());
         deleteBtn.addEventListener('click', () => {
+            _editorDirty = true;
             const allRows = Array.from(document.querySelectorAll('#aprendLineRows .aprend-line-row'));
             // Não apagar se for a única linha — apenas limpar o conteúdo
             if (allRows.length <= 1) {
@@ -898,6 +905,7 @@ const Aprendizados = (() => {
         if (titleEl?.value?.trim()) note.title = titleEl.value.trim();
 
         saveNote(nav.category, nav.itemId, note);
+        _editorDirty = false; // DOM sincronizado com storage
 
         // Atualizar card
         const card = document.querySelector(`.aprend-note-card[data-note-id="${note.id}"]`);
@@ -982,7 +990,7 @@ const Aprendizados = (() => {
         });
 
         // Título
-        document.getElementById('aprendNoteTitle')?.addEventListener('input', () => _syncLinesAndSave());
+        document.getElementById('aprendNoteTitle')?.addEventListener('input', () => { _editorDirty = true; _syncLinesAndSave(); });
         document.getElementById('aprendNoteTitle')?.addEventListener('blur',  () => _syncLinesAndSave());
 
         // Drag & drop de arquivos
@@ -1041,14 +1049,28 @@ const Aprendizados = (() => {
 
     // ─── Copiar todo o texto da nota ─────────────────────────────────
     function _copyAllNoteText() {
-        _syncLinesAndSave();
-        const note = getNote(nav.category, nav.itemId, nav.noteId);
-        if (!note || !note.content || !note.content.trim()) {
+        // IMPORTANTE: ler diretamente do DOM (fonte da verdade enquanto o editor está aberto).
+        // Não chamar _syncLinesAndSave() antes — isso poderia filtrar linhas vazias e
+        // alterar o DOM/storage de forma inesperada. Leitura pura, sem efeitos colaterais.
+        const rows = Array.from(document.querySelectorAll('#aprendLineRows .aprend-line-row'));
+        let textToCopy = '';
+
+        if (rows.length > 0) {
+            // Ler cada linha diretamente dos elementos do DOM
+            const lines = rows
+                .map(r => getPlainText(r.querySelector('.aprend-line-text') || r).replace(/\n/g, ''))
+                .filter(l => l.trim() !== '');
+            textToCopy = lines.join('\n');
+        } else {
+            // Fallback: ler do storage (se o DOM não tiver linhas)
+            const note = getNote(nav.category, nav.itemId, nav.noteId);
+            textToCopy = note?.content || '';
+        }
+
+        if (!textToCopy.trim()) {
             _showToast('Nota vazia — nada para copiar.', false);
             return;
         }
-
-        const textToCopy = note.content;
 
         if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
             navigator.clipboard.writeText(textToCopy).then(() => {
@@ -1750,7 +1772,10 @@ const Aprendizados = (() => {
             } else {
                 if (nav.category) renderSubfolders();
                 if (nav.itemId)   renderNotesList();
-                if (nav.noteId)   renderEditor();
+                // Proteger o editor: se já houver linhas no DOM, não reconstruir
+                // (o editor já está aberto e é a fonte da verdade enquanto visível)
+                if (nav.noteId && !document.querySelector('#aprendLineRows .aprend-line-row'))
+                    renderEditor();
             }
             _applyLayout();
         }
@@ -1778,15 +1803,20 @@ const Aprendizados = (() => {
     // Re-renderiza apenas o que está visível, preservando a posição do cursor no editor
     function refreshFromRemote() {
         try {
-            // Se o editor estiver aberto com uma nota em edição, não interromper a digitação
-            // — o editor faz flush ao perder foco; apenas atualizar listas em background
+            // Se o editor estiver aberto com uma nota em edição, NUNCA re-renderizar o editor.
+            // Re-render destrói o DOM e recria a partir do storage → perde linhas digitadas/coladas.
+            // O editor já salva em tempo real via _syncLinesAndSave() em cada input.
             renderFolders();
             if (nav.category === '__recent__') {
                 renderRecentNotes();
             } else if (nav.category && nav.itemId) {
                 renderNotesList();
-                // Só re-renderizar o editor se a nota não estiver sendo editada
-                if (nav.noteId && !_noteSaveTimer) {
+                // NUNCA re-renderizar editor durante edição — DOM é a fonte da verdade enquanto
+                // o editor está aberto. O _editorDirty flag indica mudanças pendentes, mas mesmo
+                // sem mudanças pendentes, re-renderizar pode causar perda de foco e confusão.
+                // O editor é reconstruído quando o usuário navega de volta para ele.
+                // Apenas re-renderizar se não houver nenhum editor aberto.
+                if (nav.noteId && !document.querySelector('#aprendLineRows .aprend-line-row')) {
                     renderEditor();
                 }
             } else if (nav.category) {

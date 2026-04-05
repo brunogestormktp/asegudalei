@@ -10,6 +10,7 @@ Object.assign(HabitTrackerApp.prototype, {
         document.getElementById('btnReports').addEventListener('click', () => this.showView('reports'));
         document.getElementById('btnAprendizados').addEventListener('click', () => this.showView('aprendizados'));
         document.getElementById('btnRanking').addEventListener('click', () => this.showView('ranking'));
+        document.getElementById('btnAI').addEventListener('click', () => this.showView('ai'));
         document.getElementById('btnSettings').addEventListener('click', () => this.showView('settings'));
 
         // Onboarding listeners
