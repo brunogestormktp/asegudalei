@@ -577,7 +577,9 @@ Object.assign(HabitTrackerApp.prototype, {
                 aiBtn.addEventListener('click', (ev) => {
                     ev.stopPropagation();
                     ev.preventDefault();
-                    this._aiOpenWithItem(category, item.id, item.name);
+                    // Capturar nota em tempo real (pode ter sido editada)
+                    const liveNote = this._getEditableText(noteEditable) || itemData.note || '';
+                    this._aiOpenWithItem(category, item.id, item.name, liveNote, itemData.status);
                 });
             }
 

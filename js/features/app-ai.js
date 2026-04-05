@@ -1388,19 +1388,34 @@ Object.assign(HabitTrackerApp.prototype, {
     },
 
     // ── Feature 2: Abrir IA com contexto de um item específico ───────────
-    _aiOpenWithItem(category, itemId, itemName) {
+    _aiOpenWithItem(category, itemId, itemName, noteText, status) {
         this.showView('ai');
-        const msg = `Analisa a demanda "${itemName}" para mim — como foi essa semana, o que está pendente e como posso avançar hoje.`;
-        // Pre-fill input e dar foco para o usuário poder editar antes de enviar
+
+        // Construir mensagem contextual com a nota do item
+        let msg = '';
+        const statusLabel = {
+            'concluido': 'concluído', 'concluido-ongoing': 'concluído',
+            'em-andamento': 'em andamento', 'bloqueado': 'bloqueado',
+            'aguardando': 'aguardando', 'nao-feito': 'não feito',
+            'parcialmente': 'parcialmente concluído', 'pular': 'pulado',
+            'prioridade': 'prioridade', 'none': 'sem status',
+        }[status] || 'sem status';
+
+        if (noteText && noteText.trim()) {
+            msg = `Estou trabalhando na demanda "${itemName}" (status: ${statusLabel}). `
+                + `A nota de hoje diz:\n\n"${noteText.trim()}"\n\n`
+                + `Me ajuda a entender e resolver isso. O que devo fazer? `
+                + `Depois me pergunta se houve algum aprendizado para registrar.`;
+        } else {
+            msg = `Analisa a demanda "${itemName}" (status: ${statusLabel}) para mim — `
+                + `como foi essa semana, o que está pendente e como posso avançar hoje. `
+                + `Depois me pergunta se houve algum aprendizado para registrar.`;
+        }
+
+        // Auto-enviar a mensagem (não apenas pre-fill)
         setTimeout(() => {
-            const input = document.getElementById('aiInput');
-            if (input) {
-                input.value = msg;
-                input.focus();
-                // Posicionar cursor no final
-                input.setSelectionRange(msg.length, msg.length);
-            }
-        }, 150);
+            this.sendAIMessage(msg);
+        }, 200);
     },
 
 });
