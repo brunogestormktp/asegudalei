@@ -340,8 +340,13 @@ Object.assign(HabitTrackerApp.prototype, {
         const container = document.getElementById('aiMessages');
         container?.querySelectorAll('.ai-quick-replies').forEach(el => el.remove());
 
+        // Adicionar mensagem do usuário ao histórico imediatamente
+        this._aiHistory.push({ role: 'user', content: message });
         this._appendMessage('user', message);
         this._aiScrollToBottom();
+
+        // Salvar já ao enviar (cria a conversa no histórico com o 1º msg do usuário como título)
+        this._aiSaveCurrentConvo().then(() => this._aiRenderHistoryList());
 
         const typingEl = this._showTyping();
         this._aiScrollToBottom();
@@ -435,7 +440,7 @@ Object.assign(HabitTrackerApp.prototype, {
 
                 if (reply) {
                     this._appendMessage('assistant', reply);
-                    this._aiHistory.push({ role: 'user',      content: message });
+                    // Mensagem do usuário já foi adicionada ao _aiHistory antes do envio
                     this._aiHistory.push({ role: 'assistant', content: reply });
                     if (this._aiHistory.length > 40) {
                         this._aiHistory = this._aiHistory.slice(-40);
@@ -447,8 +452,8 @@ Object.assign(HabitTrackerApp.prototype, {
                         this._renderQuickReplies(quickReplies);
                     }
 
-                    // Persist conversation to Supabase
-                    this._aiSaveCurrentConvo();
+                    // Persist conversation to Supabase e atualizar lista
+                    this._aiSaveCurrentConvo().then(() => this._aiRenderHistoryList());
                 }
 
                 const actions = Array.isArray(data.actions) ? data.actions : [];

@@ -53,7 +53,25 @@ const StorageManager = {
             }
         }
 
-        const SPECIAL_KEYS = ['_settings', '_aprendizados'];
+        // _aiConversations: merge por id, mantém conversa com updatedAt mais recente
+        if (incoming['_aiConversations'] !== undefined) {
+            const baseArr = Array.isArray(result['_aiConversations']) ? result['_aiConversations'] : [];
+            const incomArr = Array.isArray(incoming['_aiConversations']) ? incoming['_aiConversations'] : [];
+            const map = new Map();
+            for (const c of baseArr) { if (c?.id) map.set(c.id, c); }
+            for (const c of incomArr) {
+                if (!c?.id) continue;
+                const existing = map.get(c.id);
+                if (!existing || (c.updatedAt || 0) > (existing.updatedAt || 0)) {
+                    map.set(c.id, c);
+                }
+            }
+            result['_aiConversations'] = Array.from(map.values())
+                .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+                .slice(0, 30);
+        }
+
+        const SPECIAL_KEYS = ['_settings', '_aprendizados', '_aiConversations'];
 
         for (const dateKey of Object.keys(incoming)) {
             // Ignorar chaves especiais já tratadas acima
