@@ -590,37 +590,64 @@ Object.assign(HabitTrackerApp.prototype, {
             // ── Item em foco (clicou no 🤖): enviar aprendizados desse item silenciosamente ──
             let focusedItemAprend = null;
             if (this._aiItemFocus) {
-                try {
-                    const aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
-                    const f = this._aiItemFocus;
-                    const itemAprend = aprendData[f.category]?.[f.itemId];
-                    if (itemAprend) {
-                        const notes = Array.isArray(itemAprend.notes) ? itemAprend.notes : [];
-                        const validNotes = notes.filter(n => !n.deleted && n.content && n.content.trim());
-                        if (validNotes.length > 0) {
-                            const entries = [];
-                            for (const n of validNotes.slice(0, 6)) {
-                                const checked = n.checkedLines || {};
-                                const noteLines = n.content.split('\n').filter(l => l.trim());
-                                const pending = [], done = [];
-                                noteLines.forEach((line, idx) => {
-                                    if (checked[String(idx)]) done.push(line.trim());
-                                    else pending.push(line.trim());
-                                });
-                                let entry = (n.title || 'sem título');
-                                if (pending.length) entry += ' | Pendente: ' + pending.slice(0, 5).join('; ');
-                                if (done.length) entry += ' | Concluído(' + done.length + ')';
-                                entries.push(entry);
+                const f = this._aiItemFocus;
+
+                // ── Modo "sem nota": contexto rico já pré-computado em _aiOpenWithItem ──
+                if (f._richContext) {
+                    const rc = f._richContext;
+                    focusedItemAprend = {
+                        category:       f.category,
+                        itemId:         f.itemId,
+                        itemName:       f.itemName,
+                        noNoteMode:     true,
+                        statusLabel:    rc.statusLabel,
+                        dayName:        rc.dayName,
+                        weekNum:        rc.weekNum,
+                        monthName:      rc.monthName,
+                        settingsContext: rc.settingsContext || null,
+                        aprendLines:    rc.aprendLines,
+                        historyLines:   rc.historyLines,
+                        hasSomeData:    rc.hasSomeData,
+                        // Instrução explícita para a Edge Function
+                        instruction: rc.hasSomeData
+                            ? 'Analise linha por linha os aprendizados e histórico abaixo. Sugira uma lista concreta e útil do que fazer hoje nesta demanda. Priorize itens pendentes dos aprendizados. Faça perguntas se precisar de mais detalhes.'
+                            : 'Não há dados históricos. Sugira tarefas típicas para esta demanda pelo nome/categoria e faça 3 a 5 perguntas para levantar contexto e poder sugerir itens mais relevantes.',
+                    };
+
+                // ── Modo normal: ler aprendizados do localStorage ──
+                } else {
+                    try {
+                        const aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
+                        const itemAprend = aprendData[f.category]?.[f.itemId];
+                        if (itemAprend) {
+                            const notes = Array.isArray(itemAprend.notes) ? itemAprend.notes : [];
+                            const validNotes = notes.filter(n => !n.deleted && n.content && n.content.trim());
+                            if (validNotes.length > 0) {
+                                const entries = [];
+                                for (const n of validNotes.slice(0, 6)) {
+                                    const checked = n.checkedLines || {};
+                                    const noteLines = n.content.split('\n').filter(l => l.trim());
+                                    const pending = [], done = [];
+                                    noteLines.forEach((line, idx) => {
+                                        if (checked[String(idx)]) done.push(line.trim());
+                                        else pending.push(line.trim());
+                                    });
+                                    let entry = (n.title || 'sem título');
+                                    if (pending.length) entry += ' | Pendente: ' + pending.slice(0, 5).join('; ');
+                                    if (done.length) entry += ' | Concluído(' + done.length + ')';
+                                    entries.push(entry);
+                                }
+                                focusedItemAprend = {
+                                    category: f.category,
+                                    itemId: f.itemId,
+                                    itemName: f.itemName,
+                                    notes: entries,
+                                };
                             }
-                            focusedItemAprend = {
-                                category: f.category,
-                                itemId: f.itemId,
-                                itemName: f.itemName,
-                                notes: entries,
-                            };
                         }
-                    }
-                } catch {}
+                    } catch {}
+                }
+
                 // Limpar foco após uso (single-shot)
                 this._aiItemFocus = null;
             }
@@ -1457,13 +1484,10 @@ Object.assign(HabitTrackerApp.prototype, {
             return;
         }
 
-        // ── Caso 2: sem nota — montar prompt rico com contexto completo ──
-        // Coletar dados assincronamente antes de montar o prompt
-        const todayStr  = this.getDateString();
-        const now       = new Date();
-        const monthName = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][now.getMonth()];
-        const weekNum   = this._getWeekNumber(now);
-        const dayName   = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'][now.getDay()];
+        // ── Caso 2: sem nota — coletar contexto rico e enviar silenciosamente ──
+        // O contexto detalhado vai no context_hint (invisível na UI).
+        // Na UI aparece apenas uma mensagem curta e limpa.
+        const now = new Date();
 
         // -- Aprendizados do item --
         let aprendLines = [];
@@ -1478,7 +1502,7 @@ Object.assign(HabitTrackerApp.prototype, {
                     const checked = n.checkedLines || {};
                     lines.forEach((line, idx) => {
                         const done = checked[String(idx)];
-                        aprendLines.push(`  ${done ? '✅' : '•'} [${n.title || 'nota'}] ${line.trim()}`);
+                        aprendLines.push(`${done ? '✅' : '•'} [${n.title || 'nota'}] ${line.trim()}`);
                     });
                 }
             }
@@ -1488,7 +1512,6 @@ Object.assign(HabitTrackerApp.prototype, {
         let historyLines = [];
         try {
             const allData = await StorageManager.getData();
-            const entries = [];
             for (let i = 1; i <= 28; i++) {
                 const d = new Date(now);
                 d.setDate(now.getDate() - i);
@@ -1499,11 +1522,11 @@ Object.assign(HabitTrackerApp.prototype, {
                 const note = typeof raw === 'object' ? (raw?.note || '') : '';
                 if (st === 'none' && !note.trim()) continue;
                 const dd = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
-                let line = `  ${dd}: ${st}`;
+                let line = `${dd}: ${st}`;
                 if (note.trim()) line += ` — "${note.replace(/\[img:[^\]]*\]/g,'').trim().slice(0,120)}"`;
-                entries.push(line);
+                historyLines.push(line);
+                if (historyLines.length >= 12) break;
             }
-            historyLines = entries.slice(0, 12);
         } catch {}
 
         // -- Contexto de settings do item --
@@ -1514,48 +1537,31 @@ Object.assign(HabitTrackerApp.prototype, {
             if (ctx && ctx.trim()) settingsContext = ctx.trim();
         } catch {}
 
-        // -- Montar prompt --
-        const parts = [];
-        parts.push(`Preciso de ajuda para saber **o que fazer hoje** na demanda **"${itemName}"** (${statusLabel}).`);
-        parts.push(`Hoje é **${dayName}**, semana ${weekNum} de **${monthName}**.`);
-
-        if (settingsContext) {
-            parts.push(`\n**Contexto da demanda:**\n${settingsContext}`);
-        }
-
-        if (aprendLines.length > 0) {
-            parts.push(`\n**Aprendizados/tarefas registrados para "${itemName}":**\n${aprendLines.join('\n')}`);
-        }
-
-        if (historyLines.length > 0) {
-            parts.push(`\n**Histórico recente (últimas semanas):**\n${historyLines.join('\n')}`);
-        } else {
-            parts.push(`\n_Não há histórico de atividades para esta demanda ainda._`);
-        }
-
         const hasSomeData = aprendLines.length > 0 || historyLines.length > 0 || settingsContext;
 
-        if (hasSomeData) {
-            parts.push(
-                `\nCom base em tudo isso, por favor:\n` +
-                `1. Analise linha por linha os aprendizados/histórico acima\n` +
-                `2. Sugira uma lista concreta de itens úteis para fazer hoje nesta demanda\n` +
-                `3. Identifique tarefas pendentes, conteúdos a aprender, ideias ou próximos passos\n` +
-                `4. Se houver itens em aberto nos aprendizados, priorize-os\n` +
-                `5. Faça perguntas se precisar de mais detalhes para refinar as sugestões`
-            );
-        } else {
-            parts.push(
-                `\nNão há dados históricos suficientes. Por favor:\n` +
-                `1. Sugira tarefas/atividades típicas para uma demanda chamada **"${itemName}"** (${category})\n` +
-                `2. Faça **3 a 5 perguntas** sobre esta demanda para conseguir sugerir itens realmente relevantes\n` +
-                `3. Com base no nome e contexto, indique possíveis conteúdos, tarefas ou ideias iniciais`
-            );
-        }
+        // Enriquecer _aiItemFocus com todos os dados para o context_hint silencioso
+        this._aiItemFocus = {
+            category, itemId, itemName,
+            // dados extras para _buildAIContext usar
+            _richContext: {
+                statusLabel,
+                weekNum: this._getWeekNumber(now),
+                monthName: ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][now.getMonth()],
+                dayName: ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'][now.getDay()],
+                aprendLines,
+                historyLines,
+                settingsContext,
+                hasSomeData,
+                noNoteMode: true, // sinaliza à Edge Function o modo "sem nota"
+            },
+        };
 
-        const msg = parts.join('\n');
+        // Mensagem curta e limpa que aparece na UI
+        const shortMsg = hasSomeData
+            ? `O que fazer hoje em "${itemName}"?`
+            : `O que fazer hoje em "${itemName}"? (sem histórico ainda)`;
 
-        setTimeout(() => this.sendAIMessage(msg), 200);
+        setTimeout(() => this.sendAIMessage(shortMsg), 200);
     },
 
     _getWeekNumber(date) {
