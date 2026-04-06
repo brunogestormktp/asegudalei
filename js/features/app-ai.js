@@ -360,26 +360,6 @@ Object.assign(HabitTrackerApp.prototype, {
             const supabaseClient = window.getSupabaseClient();
             if (!supabaseClient) throw new Error('Supabase não disponível');
 
-            // Obter sessão válida — tenta getSession() primeiro, se token expirado faz refresh
-            let session;
-            const { data: { session: cached } } = await supabaseClient.auth.getSession();
-            if (cached?.access_token) {
-                // Verificar se o token está próximo de expirar (menos de 60s restantes)
-                const exp = cached.expires_at ? cached.expires_at * 1000 : 0;
-                if (exp && exp - Date.now() < 60000) {
-                    console.log('AI: token expirando em breve, forçando refresh...');
-                    const { data: { session: refreshed } } = await supabaseClient.auth.refreshSession();
-                    session = refreshed || cached;
-                } else {
-                    session = cached;
-                }
-            } else {
-                // Sem sessão em cache — tentar refresh
-                const { data: { session: refreshed } } = await supabaseClient.auth.refreshSession();
-                session = refreshed;
-            }
-            if (!session?.access_token) throw new Error('Sessão expirada — faça login novamente');
-
             // Forçar sync dos dados locais para o Supabase ANTES de chamar a IA,
             // garantindo que a Edge Function leia os dados mais recentes.
             try {
@@ -389,8 +369,22 @@ Object.assign(HabitTrackerApp.prototype, {
                 }
             } catch (e) { console.warn('AI: pre-sync failed (will use context_hint fallback)', e); }
 
+            // Buscar token APÓS o sync (o sync pode ter renovado a sessão)
+            const getFreshToken = async () => {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (session?.access_token) {
+                    const exp = session.expires_at ? session.expires_at * 1000 : 0;
+                    if (!exp || exp - Date.now() > 30000) return session.access_token;
+                }
+                const { data: { session: refreshed } } = await supabaseClient.auth.refreshSession();
+                if (!refreshed?.access_token) throw new Error('Sessão expirada — faça login novamente');
+                return refreshed.access_token;
+            };
+
+            const token = await getFreshToken();
+
             const aiHeaders = {
-                'Authorization': `Bearer ${session.access_token}`,
+                'Authorization': `Bearer ${token}`,
                 'Content-Type':  'application/json',
                 'apikey':        SUPABASE_CONFIG.anonKey,
             };
@@ -407,15 +401,14 @@ Object.assign(HabitTrackerApp.prototype, {
                 body: aiBody,
             });
 
-            // Se 401 (token expirado), forçar refresh e tentar uma vez
+            // Se 401, buscar token novamente e tentar uma última vez
             if (resp.status === 401) {
                 console.log('AI assistant 401 — forçando refreshSession e retentando...');
                 const { data: { session: fresh } } = await supabaseClient.auth.refreshSession();
                 if (!fresh?.access_token) throw new Error('Sessão expirada — faça login novamente');
-                aiHeaders['Authorization'] = `Bearer ${fresh.access_token}`;
                 resp = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/ai-assistant`, {
                     method: 'POST',
-                    headers: aiHeaders,
+                    headers: { ...aiHeaders, 'Authorization': `Bearer ${fresh.access_token}` },
                     body: aiBody,
                 });
             }
