@@ -1436,7 +1436,7 @@ Object.assign(HabitTrackerApp.prototype, {
     },
 
     // ── Feature 2: Abrir IA com contexto de um item específico ───────────
-    _aiOpenWithItem(category, itemId, itemName, noteText, status) {
+    async _aiOpenWithItem(category, itemId, itemName, noteText, status) {
         this.showView('ai');
 
         const statusLabel = {
@@ -1450,16 +1450,120 @@ Object.assign(HabitTrackerApp.prototype, {
         // Guardar foco no item para _buildAIContext enviar os aprendizados silenciosamente
         this._aiItemFocus = { category, itemId, itemName };
 
-        let msg = '';
+        // ── Caso 1: tem nota hoje → análise direta ────────────────────
         if (noteText && noteText.trim()) {
-            msg = `"${itemName}" (${statusLabel}) — nota de hoje:\n\n"${noteText.trim()}"\n\nMe ajuda a resolver isso.`;
-        } else {
-            msg = `O que devo fazer hoje em "${itemName}"? (${statusLabel})`;
+            const msg = `"${itemName}" (${statusLabel}) — nota de hoje:\n\n"${noteText.trim()}"\n\nMe ajuda a resolver isso.`;
+            setTimeout(() => this.sendAIMessage(msg), 200);
+            return;
         }
 
-        setTimeout(() => {
-            this.sendAIMessage(msg);
-        }, 200);
+        // ── Caso 2: sem nota — montar prompt rico com contexto completo ──
+        // Coletar dados assincronamente antes de montar o prompt
+        const todayStr  = this.getDateString();
+        const now       = new Date();
+        const monthName = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'][now.getMonth()];
+        const weekNum   = this._getWeekNumber(now);
+        const dayName   = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'][now.getDay()];
+
+        // -- Aprendizados do item --
+        let aprendLines = [];
+        try {
+            const aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
+            const itemAprend = aprendData[category]?.[itemId];
+            if (itemAprend) {
+                const notes = (Array.isArray(itemAprend.notes) ? itemAprend.notes : [])
+                    .filter(n => !n.deleted && n.content && n.content.trim());
+                for (const n of notes.slice(0, 8)) {
+                    const lines = n.content.split('\n').filter(l => l.trim());
+                    const checked = n.checkedLines || {};
+                    lines.forEach((line, idx) => {
+                        const done = checked[String(idx)];
+                        aprendLines.push(`  ${done ? '✅' : '•'} [${n.title || 'nota'}] ${line.trim()}`);
+                    });
+                }
+            }
+        } catch {}
+
+        // -- Histórico recente do item (últimas 4 semanas) --
+        let historyLines = [];
+        try {
+            const allData = await StorageManager.getData();
+            const entries = [];
+            for (let i = 1; i <= 28; i++) {
+                const d = new Date(now);
+                d.setDate(now.getDate() - i);
+                const ds = this.getDateString(d);
+                const raw = allData[ds]?.[category]?.[itemId];
+                if (!raw) continue;
+                const st   = typeof raw === 'string' ? raw : (raw?.status || 'none');
+                const note = typeof raw === 'object' ? (raw?.note || '') : '';
+                if (st === 'none' && !note.trim()) continue;
+                const dd = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
+                let line = `  ${dd}: ${st}`;
+                if (note.trim()) line += ` — "${note.replace(/\[img:[^\]]*\]/g,'').trim().slice(0,120)}"`;
+                entries.push(line);
+            }
+            historyLines = entries.slice(0, 12);
+        } catch {}
+
+        // -- Contexto de settings do item --
+        let settingsContext = '';
+        try {
+            const s = StorageManager.getSettings();
+            const ctx = s?.itemContexts?.[category]?.[itemId];
+            if (ctx && ctx.trim()) settingsContext = ctx.trim();
+        } catch {}
+
+        // -- Montar prompt --
+        const parts = [];
+        parts.push(`Preciso de ajuda para saber **o que fazer hoje** na demanda **"${itemName}"** (${statusLabel}).`);
+        parts.push(`Hoje é **${dayName}**, semana ${weekNum} de **${monthName}**.`);
+
+        if (settingsContext) {
+            parts.push(`\n**Contexto da demanda:**\n${settingsContext}`);
+        }
+
+        if (aprendLines.length > 0) {
+            parts.push(`\n**Aprendizados/tarefas registrados para "${itemName}":**\n${aprendLines.join('\n')}`);
+        }
+
+        if (historyLines.length > 0) {
+            parts.push(`\n**Histórico recente (últimas semanas):**\n${historyLines.join('\n')}`);
+        } else {
+            parts.push(`\n_Não há histórico de atividades para esta demanda ainda._`);
+        }
+
+        const hasSomeData = aprendLines.length > 0 || historyLines.length > 0 || settingsContext;
+
+        if (hasSomeData) {
+            parts.push(
+                `\nCom base em tudo isso, por favor:\n` +
+                `1. Analise linha por linha os aprendizados/histórico acima\n` +
+                `2. Sugira uma lista concreta de itens úteis para fazer hoje nesta demanda\n` +
+                `3. Identifique tarefas pendentes, conteúdos a aprender, ideias ou próximos passos\n` +
+                `4. Se houver itens em aberto nos aprendizados, priorize-os\n` +
+                `5. Faça perguntas se precisar de mais detalhes para refinar as sugestões`
+            );
+        } else {
+            parts.push(
+                `\nNão há dados históricos suficientes. Por favor:\n` +
+                `1. Sugira tarefas/atividades típicas para uma demanda chamada **"${itemName}"** (${category})\n` +
+                `2. Faça **3 a 5 perguntas** sobre esta demanda para conseguir sugerir itens realmente relevantes\n` +
+                `3. Com base no nome e contexto, indique possíveis conteúdos, tarefas ou ideias iniciais`
+            );
+        }
+
+        const msg = parts.join('\n');
+
+        setTimeout(() => this.sendAIMessage(msg), 200);
+    },
+
+    _getWeekNumber(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
     },
 
 });
