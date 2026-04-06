@@ -78,6 +78,10 @@ serve(async (req: Request) => {
     const context = buildContext(allData, todayStr, contextHint);
     const sysPrompt = buildSystemPrompt(context, activeItems);
 
+    // Respostas mais longas quando modo analise profunda (sem nota no item)
+    const isDeepMode = !!(contextHint as any)?.focusedItemAprend?.noNoteMode;
+    const maxTokens = isDeepMode ? 3000 : 2000;
+
     const openrouterKey = Deno.env.get('OPENROUTER_API_KEY');
     if (!openrouterKey) return jsonResp({ error: 'OpenRouter key not configured' }, 500);
 
@@ -95,7 +99,7 @@ serve(async (req: Request) => {
           ...history,
           { role: 'user', content: message },
         ],
-        max_tokens: 2000,
+        max_tokens: maxTokens,
         temperature: 0.7,
       }),
     });
@@ -486,12 +490,53 @@ function buildContext(allData: Record<string, any>, todayStr: string, hint: any)
   const focusedItem = (hint as any)?.focusedItemAprend || null;
   if (focusedItem && typeof focusedItem === 'object') {
     L.push('\n=== 🎯 ITEM EM FOCO (usuario clicou para pedir ajuda) ===');
-    L.push(`  "${focusedItem.itemName}" (${focusedItem.category}/${focusedItem.itemId})`);
-    L.push('  Baseie resposta nos aprendizados. Sugira PENDENTES. NAO sugira concluidos. Pergunte se houve aprendizado.');
-    if (Array.isArray(focusedItem.notes) && focusedItem.notes.length > 0) {
-      focusedItem.notes.forEach((n: string) => L.push('    - ' + n));
+    L.push(`  Demanda: "${focusedItem.itemName}" | categoria: ${focusedItem.category}`);
+
+    // ── Modo "sem nota": contexto rico pré-computado pelo frontend ──────
+    if (focusedItem.noNoteMode) {
+      const sl = focusedItem.statusLabel || 'sem status';
+      const dn = focusedItem.dayName    || '';
+      const wn = focusedItem.weekNum    || '';
+      const mn = focusedItem.monthName  || '';
+      L.push(`  Status: ${sl} | ${dn}, semana ${wn} de ${mn}`);
+
+      if (focusedItem.settingsContext) {
+        L.push(`  Contexto da demanda: ${focusedItem.settingsContext}`);
+      }
+
+      if (Array.isArray(focusedItem.aprendLines) && focusedItem.aprendLines.length > 0) {
+        L.push('  --- APRENDIZADOS (linha por linha) ---');
+        (focusedItem.aprendLines as string[]).forEach((l: string) => L.push('    ' + l));
+      } else {
+        L.push('  (Sem aprendizados registrados para esta demanda)');
+      }
+
+      if (Array.isArray(focusedItem.historyLines) && focusedItem.historyLines.length > 0) {
+        L.push('  --- HISTORICO RECENTE (ultimas semanas) ---');
+        (focusedItem.historyLines as string[]).forEach((l: string) => L.push('    ' + l));
+      } else {
+        L.push('  (Sem historico de atividades recente para esta demanda)');
+      }
+
+      // Instrução explícita para a IA
+      const instruction = focusedItem.instruction || '';
+      if (instruction) {
+        L.push(`\n  ⚡ INSTRUCAO ESPECIAL PARA ESTA RESPOSTA: ${instruction}`);
+      }
+
+      L.push('\n  MODO ATIVO: ANALISE PROFUNDA SEM NOTA. Leia TODOS os aprendizados e historico acima linha por linha.');
+      L.push('  Sugira lista concreta e util do que fazer HOJE. Priorize pendentes dos aprendizados.');
+      L.push('  Se nao houver dados, faca 3-5 perguntas inteligentes para levantar contexto.');
+      L.push('  Neste modo PODE e DEVE usar listas detalhadas — nao aplique a regra de "sem dumps".');
+
+    // ── Modo normal: apenas aprendizados resumidos ───────────────────
     } else {
-      L.push('  (Sem aprendizados — sugira acoes com base nos dados da semana)');
+      L.push('  Baseie resposta nos aprendizados abaixo. Sugira PENDENTES. NAO sugira concluidos. Pergunte se houve aprendizado.');
+      if (Array.isArray(focusedItem.notes) && focusedItem.notes.length > 0) {
+        (focusedItem.notes as string[]).forEach((n: string) => L.push('    - ' + n));
+      } else {
+        L.push('  (Sem aprendizados — sugira acoes com base nos dados da semana)');
+      }
     }
   }
 
