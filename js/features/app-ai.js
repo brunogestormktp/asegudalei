@@ -360,8 +360,32 @@ Object.assign(HabitTrackerApp.prototype, {
             const supabaseClient = window.getSupabaseClient();
             if (!supabaseClient) throw new Error('Supabase não disponível');
 
-            // Forçar sync dos dados locais para o Supabase ANTES de chamar a IA,
-            // garantindo que a Edge Function leia os dados mais recentes.
+            // Aguardar sessão válida — pode estar a inicializar (página acabou de carregar)
+            const waitForSession = () => new Promise((resolve, reject) => {
+                const client = supabaseClient;
+                // Verificar se já há sessão imediatamente
+                client.auth.getSession().then(({ data: { session } }) => {
+                    if (session?.access_token) { resolve(session); return; }
+                    // Sem sessão ainda — aguardar evento auth (max 8s)
+                    let done = false;
+                    const timer = setTimeout(() => {
+                        if (done) return; done = true;
+                        unsub?.();
+                        reject(new Error('Timeout aguardando sessão — faça login novamente'));
+                    }, 8000);
+                    const { data: { subscription: sub } } = client.auth.onAuthStateChange((event, sess) => {
+                        if (done) return;
+                        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && sess?.access_token) {
+                            done = true; clearTimeout(timer); unsub?.(); resolve(sess);
+                        }
+                    });
+                    const unsub = sub?.unsubscribe ? sub.unsubscribe.bind(sub) : () => {};
+                });
+            });
+
+            const session = await waitForSession();
+
+            // Forçar sync dos dados locais para o Supabase ANTES de chamar a IA
             try {
                 const localData = await StorageManager.getData();
                 if (StorageManager.hasRealData(localData)) {
@@ -369,12 +393,12 @@ Object.assign(HabitTrackerApp.prototype, {
                 }
             } catch (e) { console.warn('AI: pre-sync failed (will use context_hint fallback)', e); }
 
-            // Buscar token APÓS o sync (o sync pode ter renovado a sessão)
+            // Buscar token fresco APÓS o sync (o sync pode ter renovado a sessão)
             const getFreshToken = async () => {
-                const { data: { session } } = await supabaseClient.auth.getSession();
-                if (session?.access_token) {
-                    const exp = session.expires_at ? session.expires_at * 1000 : 0;
-                    if (!exp || exp - Date.now() > 30000) return session.access_token;
+                const { data: { session: s } } = await supabaseClient.auth.getSession();
+                if (s?.access_token) {
+                    const exp = s.expires_at ? s.expires_at * 1000 : 0;
+                    if (!exp || exp - Date.now() > 30000) return s.access_token;
                 }
                 const { data: { session: refreshed } } = await supabaseClient.auth.refreshSession();
                 if (!refreshed?.access_token) throw new Error('Sessão expirada — faça login novamente');
@@ -403,14 +427,23 @@ Object.assign(HabitTrackerApp.prototype, {
 
             // Se 401, buscar token novamente e tentar uma última vez
             if (resp.status === 401) {
+                const errBody = await resp.text().catch(() => '');
+                console.log('AI assistant 401 — body:', errBody);
                 console.log('AI assistant 401 — forçando refreshSession e retentando...');
+                // Aguardar um breve momento para o token propagar
+                await new Promise(r => setTimeout(r, 500));
                 const { data: { session: fresh } } = await supabaseClient.auth.refreshSession();
                 if (!fresh?.access_token) throw new Error('Sessão expirada — faça login novamente');
+                console.log('AI: novo token obtido, exp:', fresh.expires_at);
                 resp = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/ai-assistant`, {
                     method: 'POST',
                     headers: { ...aiHeaders, 'Authorization': `Bearer ${fresh.access_token}` },
                     body: aiBody,
                 });
+                if (resp.status === 401) {
+                    const errBody2 = await resp.text().catch(() => '');
+                    console.error('AI: segundo 401 após refresh — body:', errBody2);
+                }
             }
 
             this._removeTyping(typingEl);
@@ -1457,6 +1490,8 @@ Object.assign(HabitTrackerApp.prototype, {
 
     // ── Feature 2: Abrir IA com contexto de um item específico ───────────
     async _aiOpenWithItem(category, itemId, itemName, noteText, status) {
+        // Sempre iniciar nova conversa ao abrir análise de um item
+        await this._aiStartNewConvo();
         this.showView('ai');
 
         const statusLabel = {
@@ -1482,7 +1517,7 @@ Object.assign(HabitTrackerApp.prototype, {
         // Na UI aparece apenas uma mensagem curta e limpa.
         const now = new Date();
 
-        // -- Aprendizados do item --
+        // -- Aprendizados do item (TODOS, sem limite) --
         let aprendLines = [];
         try {
             const aprendData = JSON.parse(localStorage.getItem('aprendizadosData') || '{}');
@@ -1490,13 +1525,26 @@ Object.assign(HabitTrackerApp.prototype, {
             if (itemAprend) {
                 const notes = (Array.isArray(itemAprend.notes) ? itemAprend.notes : [])
                     .filter(n => !n.deleted && n.content && n.content.trim());
-                for (const n of notes.slice(0, 8)) {
+                for (const n of notes) {
                     const lines = n.content.split('\n').filter(l => l.trim());
                     const checked = n.checkedLines || {};
+                    const noteTitle = n.title || 'nota';
+                    // Separar pendentes e concluídos
+                    const pending = [];
+                    const done = [];
                     lines.forEach((line, idx) => {
-                        const done = checked[String(idx)];
-                        aprendLines.push(`${done ? '✅' : '•'} [${n.title || 'nota'}] ${line.trim()}`);
+                        if (checked[String(idx)]) {
+                            done.push(line.trim());
+                        } else {
+                            pending.push(line.trim());
+                        }
                     });
+                    // Incluir cabeçalho da nota com contagem
+                    aprendLines.push(`📝 [${noteTitle}] (${done.length}/${lines.length} concluídos)`);
+                    pending.forEach(p => aprendLines.push(`  • ${p}`));
+                    if (done.length > 0) {
+                        aprendLines.push(`  ✅ Concluídos (${done.length}): ${done.slice(0,3).join('; ')}${done.length > 3 ? '...' : ''}`);
+                    }
                 }
             }
         } catch {}
