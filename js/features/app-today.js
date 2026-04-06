@@ -806,20 +806,6 @@ Object.assign(HabitTrackerApp.prototype, {
     async _showWeekSummaryPopup(category, itemId, itemName) {
         this._closeWeekSummaryPopup();
 
-        const DAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
-        const monday   = this.getWeekMonday(this.currentDate);
-        const todayStr = this.getDateString(new Date());
-
-        const dates = Array.from({ length: 7 }, (_, i) => {
-            const d = new Date(monday);
-            d.setDate(monday.getDate() + i);
-            return d;
-        });
-
-        const weekData = await Promise.all(
-            dates.map(d => StorageManager.getItemStatus(this.getDateString(d), category, itemId))
-        );
-
         const overlay = document.createElement('div');
         overlay.className = 'week-summary-overlay';
         overlay.setAttribute('role', 'dialog');
@@ -829,6 +815,7 @@ Object.assign(HabitTrackerApp.prototype, {
         const popup = document.createElement('div');
         popup.className = 'week-summary-popup';
 
+        // ── Header fixo (título + fechar) ─────────────────────
         const header = document.createElement('div');
         header.className = 'ws-header';
         const title = document.createElement('span');
@@ -843,91 +830,172 @@ Object.assign(HabitTrackerApp.prototype, {
         header.appendChild(closeBtn);
         popup.appendChild(header);
 
-        const fmtD = (d) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-        const sub = document.createElement('div');
-        sub.className = 'ws-subtitle';
-        sub.textContent = `Semana ${fmtD(dates[0])} – ${fmtD(dates[6])}`;
-        popup.appendChild(sub);
+        // ── Navegação de semanas ───────────────────────────────
+        const navBar = document.createElement('div');
+        navBar.className = 'ws-nav';
 
-        const list = document.createElement('div');
-        list.className = 'ws-list';
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'ws-nav-btn';
+        prevBtn.textContent = '‹';
+        prevBtn.title = 'Semana anterior';
+        prevBtn.setAttribute('aria-label', 'Semana anterior');
 
-        dates.forEach((d, i) => {
-            const dateStr = this.getDateString(d);
-            const info    = weekData[i];
-            const status  = info.status || 'none';
-            const note    = info.note   || '';
-            const cfg     = STATUS_CONFIG[status] || STATUS_CONFIG['none'];
-            const isToday = dateStr === todayStr;
+        const weekLabel = document.createElement('span');
+        weekLabel.className = 'ws-nav-label';
 
-            const row = document.createElement('div');
-            row.className = 'ws-row' + (isToday ? ' ws-today' : '');
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'ws-nav-btn';
+        nextBtn.textContent = '›';
+        nextBtn.title = 'Próxima semana';
+        nextBtn.setAttribute('aria-label', 'Próxima semana');
 
-            const top = document.createElement('div');
-            top.className = 'ws-row-top';
+        navBar.appendChild(prevBtn);
+        navBar.appendChild(weekLabel);
+        navBar.appendChild(nextBtn);
+        popup.appendChild(navBar);
 
-            const dot = document.createElement('span');
-            dot.className = 'ws-dot';
-            dot.dataset.status = status;
-
-            const day = document.createElement('span');
-            day.className = 'ws-day';
-            day.textContent = DAYS[i];
-
-            const statusLabel = document.createElement('span');
-            statusLabel.className = 'ws-status';
-            statusLabel.textContent = cfg.label || '—';
-            statusLabel.dataset.status = status;
-
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'ws-copy';
-            copyBtn.textContent = '📄';
-            copyBtn.title = 'Copiar nota';
-            copyBtn.setAttribute('aria-label', 'Copiar nota de ' + DAYS[i]);
-            if (!note.trim()) copyBtn.style.visibility = 'hidden';
-
-            copyBtn.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                ev.preventDefault();
-                const plain = note.replace(/\[img:[^\]]*\]/g, '').trim();
-                this._wsCopyText(plain, copyBtn, '📄');
-            });
-
-            top.appendChild(dot);
-            top.appendChild(day);
-            top.appendChild(statusLabel);
-            top.appendChild(copyBtn);
-
-            const noteEl = document.createElement('div');
-            noteEl.className = 'ws-note' + (note.trim() ? '' : ' ws-empty');
-            noteEl.textContent = note.trim()
-                ? note.replace(/\[img:[^\]]*\]/g, '[imagem]')
-                : '—';
-
-            row.appendChild(top);
-            row.appendChild(noteEl);
-            list.appendChild(row);
-        });
-
-        popup.appendChild(list);
-
-        const copyAll = document.createElement('button');
-        copyAll.className = 'ws-copy-all';
-        copyAll.textContent = '📋 Copiar tudo';
-        copyAll.setAttribute('aria-label', 'Copiar todas as notas');
-        copyAll.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            ev.preventDefault();
-            const allNotes = dates
-                .map((_, i) => (weekData[i].note || '').replace(/\[img:[^\]]*\]/g, '').trim())
-                .filter(n => n.length > 0);
-            this._wsCopyText(allNotes.join('\n'), copyAll, '📋 Copiar tudo');
-        });
-        popup.appendChild(copyAll);
+        // ── Área de conteúdo dinâmico ─────────────────────────
+        const contentArea = document.createElement('div');
+        contentArea.className = 'ws-content';
+        popup.appendChild(contentArea);
 
         overlay.appendChild(popup);
         document.body.appendChild(overlay);
 
+        // ── Estado de navegação ───────────────────────────────
+        let weekOffset = 0; // 0 = semana actual, -1 = semana passada, etc.
+        const baseMonday = this.getWeekMonday(this.currentDate);
+
+        const fmtD = (d) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+
+        const renderWeek = async (offset) => {
+            const DAYS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+            const todayStr = this.getDateString(new Date());
+
+            const monday = new Date(baseMonday);
+            monday.setDate(baseMonday.getDate() + offset * 7);
+
+            const dates = Array.from({ length: 7 }, (_, i) => {
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + i);
+                return d;
+            });
+
+            // Actualiza label de navegação
+            const isCurrent = offset === 0;
+            const isPast = offset < 0;
+            const relLabel = isCurrent ? 'Esta semana' : isPast
+                ? (offset === -1 ? 'Semana passada' : `${Math.abs(offset)} semanas atrás`)
+                : (offset === 1 ? 'Próxima semana' : `${offset} semanas à frente`);
+            weekLabel.innerHTML = `<span class="ws-nav-period">${fmtD(dates[0])} – ${fmtD(dates[6])}</span><span class="ws-nav-rel">${relLabel}</span>`;
+
+            // Desabilita "próxima" se já estamos na semana corrente
+            nextBtn.disabled = offset >= 0;
+            nextBtn.style.opacity = offset >= 0 ? '0.3' : '1';
+            nextBtn.style.cursor = offset >= 0 ? 'default' : 'pointer';
+
+            // Mostra loading
+            contentArea.innerHTML = '<div class="ws-loading">Carregando…</div>';
+
+            const weekData = await Promise.all(
+                dates.map(d => StorageManager.getItemStatus(this.getDateString(d), category, itemId))
+            );
+
+            // Limpa e reconstrói lista
+            contentArea.innerHTML = '';
+
+            const list = document.createElement('div');
+            list.className = 'ws-list';
+
+            dates.forEach((d, i) => {
+                const dateStr = this.getDateString(d);
+                const info    = weekData[i];
+                const status  = info.status || 'none';
+                const note    = info.note   || '';
+                const cfg     = STATUS_CONFIG[status] || STATUS_CONFIG['none'];
+                const isToday = dateStr === todayStr;
+
+                const row = document.createElement('div');
+                row.className = 'ws-row' + (isToday ? ' ws-today' : '');
+
+                const top = document.createElement('div');
+                top.className = 'ws-row-top';
+
+                const dot = document.createElement('span');
+                dot.className = 'ws-dot';
+                dot.dataset.status = status;
+
+                const day = document.createElement('span');
+                day.className = 'ws-day';
+                day.textContent = DAYS[i];
+
+                const statusLabel = document.createElement('span');
+                statusLabel.className = 'ws-status';
+                statusLabel.textContent = cfg.label || '—';
+                statusLabel.dataset.status = status;
+
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'ws-copy';
+                copyBtn.textContent = '📄';
+                copyBtn.title = 'Copiar nota';
+                copyBtn.setAttribute('aria-label', 'Copiar nota de ' + DAYS[i]);
+                if (!note.trim()) copyBtn.style.visibility = 'hidden';
+
+                copyBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                    const plain = note.replace(/\[img:[^\]]*\]/g, '').trim();
+                    this._wsCopyText(plain, copyBtn, '📄');
+                });
+
+                top.appendChild(dot);
+                top.appendChild(day);
+                top.appendChild(statusLabel);
+                top.appendChild(copyBtn);
+
+                const noteEl = document.createElement('div');
+                noteEl.className = 'ws-note' + (note.trim() ? '' : ' ws-empty');
+                noteEl.textContent = note.trim()
+                    ? note.replace(/\[img:[^\]]*\]/g, '[imagem]')
+                    : '—';
+
+                row.appendChild(top);
+                row.appendChild(noteEl);
+                list.appendChild(row);
+            });
+
+            contentArea.appendChild(list);
+
+            const copyAll = document.createElement('button');
+            copyAll.className = 'ws-copy-all';
+            copyAll.textContent = '📋 Copiar tudo';
+            copyAll.setAttribute('aria-label', 'Copiar todas as notas');
+            copyAll.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                ev.preventDefault();
+                const allNotes = dates
+                    .map((_, i) => (weekData[i].note || '').replace(/\[img:[^\]]*\]/g, '').trim())
+                    .filter(n => n.length > 0);
+                this._wsCopyText(allNotes.join('\n'), copyAll, '📋 Copiar tudo');
+            });
+            contentArea.appendChild(copyAll);
+        };
+
+        // ── Event listeners de navegação ──────────────────────
+        prevBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            weekOffset--;
+            renderWeek(weekOffset);
+        });
+        nextBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            if (weekOffset < 0) {
+                weekOffset++;
+                renderWeek(weekOffset);
+            }
+        });
+
+        // ── Fechar ────────────────────────────────────────────
         overlay.addEventListener('click', (ev) => {
             if (ev.target === overlay) this._closeWeekSummaryPopup();
         });
@@ -942,6 +1010,9 @@ Object.assign(HabitTrackerApp.prototype, {
             }
         };
         document.addEventListener('keydown', onEsc);
+
+        // ── Renderização inicial ──────────────────────────────
+        await renderWeek(0);
         requestAnimationFrame(() => closeBtn.focus());
     },
 
