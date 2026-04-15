@@ -75,6 +75,7 @@ Object.assign(HabitTrackerApp.prototype, {
                     const rawItem = catRawData[itemDef.id];
                     const status = rawItem ? (typeof rawItem === 'string' ? rawItem : rawItem.status || 'none') : 'none';
                     const note = rawItem ? (typeof rawItem === 'string' ? '' : rawItem.note || '') : '';
+                    const attention = rawItem ? (typeof rawItem === 'object' ? (rawItem.attention || false) : false) : false;
                     if (statusFilter !== 'all') {
                         if (statusFilter === 'none' && status !== 'none') continue;
                         else if (statusFilter === 'sem-nota' && note.trim()) continue;
@@ -83,16 +84,19 @@ Object.assign(HabitTrackerApp.prototype, {
                     }
                     const color = statusColors[status] || 'transparent';
                     const label = statusLabels[status] || status;
-                    rows.push(`<div class="hs-row" data-status="${status}">
+                    const attBadge = attention ? '<span class="hs-attention-badge">⚠️</span> ' : '';
+                    rows.push({ attention, html: `<div class="hs-row${attention ? ' hs-row-attention' : ''}" data-status="${status}">
                         <span class="hs-status-dot" style="background:${color}"></span>
-                        <span class="hs-item-name">${itemDef.name}</span>
+                        <span class="hs-item-name">${attBadge}${itemDef.name}</span>
                         <span class="hs-status-label" style="color:${color}">${label}</span>
                         ${note ? `<span class="hs-note">${this._buildNoteHtmlReadonly(note)}</span>` : ''}
-                    </div>`);
+                    </div>` });
                 }
             }
 
             if (rows.length > 0) {
+                // Mover itens com atenção para o topo
+                rows.sort((a, b) => (b.attention ? 1 : 0) - (a.attention ? 1 : 0));
                 hasAny = true;
                 const dayHeader = document.createElement('div');
                 dayHeader.className = 'hs-day-header';
@@ -100,7 +104,7 @@ Object.assign(HabitTrackerApp.prototype, {
                 container.appendChild(dayHeader);
                 const section = document.createElement('div');
                 section.className = 'hs-category-section';
-                section.innerHTML = rows.join('');
+                section.innerHTML = rows.map(r => r.html).join('');
                 container.appendChild(section);
             }
 
@@ -186,6 +190,7 @@ Object.assign(HabitTrackerApp.prototype, {
                 const rawItem = catRawData[itemDef.id];
                 const status  = rawItem ? (typeof rawItem === 'string' ? rawItem : rawItem.status || 'none') : 'none';
                 const note    = rawItem ? (typeof rawItem === 'string' ? '' : rawItem.note || '') : '';
+                const attention = rawItem ? (typeof rawItem === 'object' ? (rawItem.attention || false) : false) : false;
 
                 // Filtro de status
                 if (statusFilter !== 'all') {
@@ -201,8 +206,11 @@ Object.assign(HabitTrackerApp.prototype, {
                 // Filtro de busca
                 if (searchQuery && !itemDef.name.toLowerCase().includes(searchQuery) && !note.toLowerCase().includes(searchQuery)) continue;
 
-                rows.push({ name: itemDef.name, status, note, id: itemDef.id, category: cat.key });
+                rows.push({ name: itemDef.name, status, note, id: itemDef.id, category: cat.key, attention });
             }
+
+            // Mover itens com atenção para o topo
+            rows.sort((a, b) => (b.attention ? 1 : 0) - (a.attention ? 1 : 0));
 
             if (rows.length === 0) continue;
             hasAny = true;
@@ -275,7 +283,7 @@ Object.assign(HabitTrackerApp.prototype, {
 
                 for (let i = 0; i < rowCount; i++) {
                     const tr = document.createElement('tr');
-                    tr.className = 'hs-tr' + (i > 0 ? ' hs-tr-cont' : '') + (i === 0 ? ' hs-tr-nav' : '') + (row.status === 'pular' ? ' hs-tr-pular' : '');
+                    tr.className = 'hs-tr' + (i > 0 ? ' hs-tr-cont' : '') + (i === 0 ? ' hs-tr-nav' : '') + (row.status === 'pular' ? ' hs-tr-pular' : '') + (row.attention ? ' hs-tr-attention' : '');
                     if (i === 0) {
                         tr.dataset.itemId   = row.id;
                         tr.dataset.category = row.category;
@@ -287,9 +295,10 @@ Object.assign(HabitTrackerApp.prototype, {
 
                     if (i === 0) {
                         // Primeira linha: inclui demanda e status com rowspan
+                        const attentionBadge = row.attention ? '<span class="hs-attention-badge">⚠️</span> ' : '';
                         tr.innerHTML = `
                             <td class="hs-td hs-col-demanda" rowspan="${rowCount}">
-                                <span class="hs-demanda-name">${row.name}</span>
+                                <span class="hs-demanda-name">${attentionBadge}${row.name}</span>
                             </td>
                             <td class="hs-td hs-col-status" rowspan="${rowCount}">
                                 <div class="hs-status-inner">

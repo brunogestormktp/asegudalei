@@ -82,6 +82,21 @@ Object.assign(HabitTrackerApp.prototype, {
 
         container.innerHTML = html;
 
+        // Mover demand cards com atenção para o topo de cada seção
+        container.querySelectorAll('.demand-section-body').forEach(body => {
+            const miniChart = body.querySelector('.demand-mini-chart-wrap');
+            const cards = [...body.querySelectorAll('.demand-card')];
+            const attentionCards = cards.filter(c => c.dataset.attention === '1');
+            attentionCards.reverse().forEach(card => {
+                const insertAfter = miniChart || null;
+                if (insertAfter && insertAfter.nextSibling) {
+                    body.insertBefore(card, insertAfter.nextSibling);
+                } else if (!insertAfter) {
+                    body.insertBefore(card, body.firstChild);
+                }
+            });
+        });
+
         const scrollToRestore = this._reportsScrollTop || 0;
         setTimeout(async () => {
             if (typeof Chart !== 'undefined') {
@@ -238,14 +253,17 @@ Object.assign(HabitTrackerApp.prototype, {
             for (const item of items) {
                 const rawToday = todayDayData[ci.key]?.[item.id];
                 const todayStatus = (typeof rawToday === 'string' ? rawToday : rawToday?.status) || 'none';
+                const todayAttention = rawToday ? (typeof rawToday === 'object' ? (rawToday.attention || false) : false) : false;
                 const stats = this._getItemStatsFromRangeData(item.id, ci.key, rangeData, startDate, endDate, period);
                 const badge = this._getStatusBadgeLabel(todayStatus);
                 const histJson = JSON.stringify(stats.history).replace(/'/g, '&#39;');
                 const safeName = item.name.replace(/'/g, '&#39;');
+                const attClass = todayAttention ? ' demand-card-attention' : '';
+                const attBadge = todayAttention ? '<span class="hs-attention-badge">⚠️</span> ' : '';
 
-                html += `<div class="demand-card" data-item-id="${item.id}" data-item-cat="${ci.key}" data-item-name='${safeName}'>
+                html += `<div class="demand-card${attClass}" data-item-id="${item.id}" data-item-cat="${ci.key}" data-item-name='${safeName}' data-attention="${todayAttention ? '1' : '0'}">
                     <div class="demand-card-header">
-                        <span class="demand-card-name">${item.name}</span>
+                        <span class="demand-card-name">${attBadge}${item.name}</span>
                         <span class="demand-status-badge badge-${todayStatus}">${badge}</span>
                     </div>
                     <div class="demand-sparkline-wrap">

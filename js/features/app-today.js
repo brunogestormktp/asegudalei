@@ -150,6 +150,10 @@ Object.assign(HabitTrackerApp.prototype, {
             itemEl.dataset.itemId   = item.id;
             const initialStatus = itemData.status || 'none';
             itemEl.classList.add(`status-${initialStatus}`);
+            if (itemData.attention) {
+                itemEl.classList.add('item-attention');
+                itemEl.dataset.attention = '1';
+            }
             
             let noteHtml = '';
             if (itemData.note && itemData.note.trim()) {
@@ -183,7 +187,7 @@ Object.assign(HabitTrackerApp.prototype, {
                 <div class="item-header">
                     <span class="item-name" tabindex="0">${this._escapeHtml(item.name)}</span>
                     <div style="display:flex;gap:0.5rem;align-items:center;">
-                        <button class="btn-ai-analyze" title="Analisar com IA" aria-label="Analisar com IA" data-category="${category}" data-item-id="${item.id}" data-item-name="${this._escapeHtml(item.name)}">🤖</button>
+                        <button class="btn-attention${itemData.attention ? ' is-active' : ''}" title="${itemData.attention ? 'Remover atenção' : 'Marcar como atenção'}" aria-label="Marcar como atenção" data-category="${category}" data-item-id="${item.id}">⚠️</button>
                         <button class="btn-google-search" title="Pesquisar nota no Google" aria-label="Pesquisar no Google" style="display:${hasNoteInitially ? 'inline-flex' : 'none'};align-items:center;justify-content:center;padding:2px 4px;background:none;border:none;cursor:pointer;border-radius:4px;opacity:0.75;" tabindex="-1"><img src="https://www.google.com/favicon.ico" alt="Google" width="14" height="14" style="display:block;pointer-events:none;"></button>
                         <button class="btn-week-summary" title="Resumo semanal" aria-label="Resumo semanal">📋</button>
                         <button class="btn-link-item${hasLinksInitially ? ' has-links' : ''}" title="Vincular a outro item" aria-label="Vincular item">🔗</button>
@@ -236,7 +240,7 @@ Object.assign(HabitTrackerApp.prototype, {
                     clickedElement.closest('.btn-aprend-item') ||
                     clickedElement.closest('.btn-next-day') ||
                     clickedElement.closest('.btn-google-search') ||
-                    clickedElement.closest('.btn-ai-analyze') ||
+                    clickedElement.closest('.btn-attention') ||
                     clickedElement.closest('.btn-link-item') ||
                     clickedElement.closest('.btn-week-summary') ||
                     clickedElement.closest('.week-summary-overlay') ||
@@ -571,15 +575,17 @@ Object.assign(HabitTrackerApp.prototype, {
                 });
             }
 
-            // ── Analisar com IA ──────────────────────────────────────────
-            const aiBtn = itemEl.querySelector('.btn-ai-analyze');
-            if (aiBtn) {
-                aiBtn.addEventListener('click', (ev) => {
+            // ── Botão de Atenção (prioridade do dia) ─────────────────
+            const attentionBtn = itemEl.querySelector('.btn-attention');
+            if (attentionBtn) {
+                attentionBtn.addEventListener('click', async (ev) => {
                     ev.stopPropagation();
                     ev.preventDefault();
-                    // Capturar nota em tempo real (pode ter sido editada)
-                    const liveNote = this._getEditableText(noteEditable) || itemData.note || '';
-                    this._aiOpenWithItem(category, item.id, item.name, liveNote, itemData.status);
+                    const dateStr = this.getDateString();
+                    await StorageManager.toggleAttention(dateStr, category, item.id);
+                    this._todayScrollTop = window.scrollY;
+                    this._pendingScrollRestore = true;
+                    this.renderTodayView();
                 });
             }
 
@@ -679,6 +685,12 @@ Object.assign(HabitTrackerApp.prototype, {
                 itemEl.appendChild(bar);
             });
         }
+
+        // ── Mover itens com atenção para o topo da categoria ─────────
+        const attentionItems = [...container.querySelectorAll('.item.item-attention')];
+        attentionItems.reverse().forEach(el => {
+            container.insertBefore(el, container.firstChild);
+        });
     },
 
     // Convert URLs in text to clickable links

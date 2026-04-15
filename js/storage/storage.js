@@ -254,14 +254,16 @@ const StorageManager = {
         if (!allData[dateStr]) allData[dateStr] = {};
         if (!allData[dateStr][category]) allData[dateStr][category] = {};
         
-        // Preserve existing links if not explicitly provided
+        // Preserve existing links and attention if not explicitly provided
         const existing = allData[dateStr][category][itemId];
         const existingLinks = (existing && typeof existing === 'object') ? (existing.links || []) : [];
+        const existingAttention = (existing && typeof existing === 'object') ? (existing.attention || false) : false;
 
         allData[dateStr][category][itemId] = {
             status: status,
             note: note,
             links: links !== null ? links : existingLinks,
+            attention: existingAttention,
             updatedAt: new Date().toISOString()
         };
         
@@ -269,20 +271,46 @@ const StorageManager = {
         await this.saveData(allData, true);
     },
 
+    // Toggle attention flag for a specific item on a specific date
+    async toggleAttention(dateStr, category, itemId) {
+        const allData = await this.getData();
+        if (!allData[dateStr]) allData[dateStr] = {};
+        if (!allData[dateStr][category]) allData[dateStr][category] = {};
+
+        const existing = allData[dateStr][category][itemId];
+        if (!existing || typeof existing === 'string') {
+            const status = (typeof existing === 'string') ? existing : 'none';
+            allData[dateStr][category][itemId] = {
+                status: status,
+                note: '',
+                links: [],
+                attention: true,
+                updatedAt: new Date().toISOString()
+            };
+        } else {
+            existing.attention = !existing.attention;
+            existing.updatedAt = new Date().toISOString();
+        }
+
+        await this.saveData(allData, true);
+        return allData[dateStr][category][itemId].attention;
+    },
+
     // Get status for a specific item on a specific date
     async getItemStatus(dateStr, category, itemId) {
         const dateData = await this.getDateData(dateStr);
         const itemData = dateData[category]?.[itemId];
         
-        if (!itemData) return { status: 'none', note: '', links: [] };
+        if (!itemData) return { status: 'none', note: '', links: [], attention: false };
         
         // Handle old format (just status string)
-        if (typeof itemData === 'string') return { status: itemData, note: '', links: [] };
+        if (typeof itemData === 'string') return { status: itemData, note: '', links: [], attention: false };
         
         return {
             status: itemData.status || 'none',
             note: itemData.note || '',
-            links: itemData.links || []
+            links: itemData.links || [],
+            attention: itemData.attention || false
         };
     },
 
