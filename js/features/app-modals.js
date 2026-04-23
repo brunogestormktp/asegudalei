@@ -100,17 +100,17 @@ Object.assign(HabitTrackerApp.prototype, {
                 const text = input.value.trim();
                 if (!text) return;
                 cleanup();
-                // Create a new standalone note in Aprendizados
-                if (typeof Aprendizados !== 'undefined') {
-                    Aprendizados.createNoteFromText(category, itemId, text);
+                // Append to fixed note "📝 Notas" (same pattern as Concluídos/Bloqueados)
+                if (typeof Aprendizados !== 'undefined' && text) {
+                    Aprendizados.addToFixedNote(category, itemId, 'notas', text);
                 }
-                // Also save first line to history with 🧠
+                // Also save first line to history with 📝
                 const dateStr = this.getDateString();
                 const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
                 const prevNote = existing.note ? existing.note.trim() : '';
-                const aprendNote = `🧠 ${text.split('\n')[0]}`;
-                const newNote = prevNote ? `${prevNote}\n${aprendNote}` : aprendNote;
-                await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'concluido', newNote);
+                const notaEntry = `📝 ${text.split('\n')[0]}`;
+                const newNote = prevNote ? `${prevNote}\n${notaEntry}` : notaEntry;
+                await StorageManager.saveItemStatus(dateStr, category, itemId, 'notas', newNote);
                 // Navigate to aprendizados tab
                 if (typeof App !== 'undefined') App.showView('aprendizados');
                 resolve(text);

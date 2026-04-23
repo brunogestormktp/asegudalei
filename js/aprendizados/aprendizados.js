@@ -501,13 +501,16 @@ const Aprendizados = (() => {
             const hasAttach = (note.attachments || []).length > 0;
             const isSelected = nav.noteId === note.id;
             const isAprend  = note.type === 'aprendizado';
+            const isNota    = note.type === 'nota' || note.type === 'notas';
+            const extraClass = isAprend ? ' aprend-note-card--aprendizado' : (isNota ? ' aprend-note-card--nota' : '');
             return `
-            <div class="aprend-note-card${isSelected ? ' selected' : ''}${isAprend ? ' aprend-note-card--aprendizado' : ''}" data-note-id="${note.id}">
+            <div class="aprend-note-card${isSelected ? ' selected' : ''}${extraClass}" data-note-id="${note.id}">
                 <div class="aprend-note-card-top">
                     <span class="aprend-note-title">${escHtml(titleStr)}</span>
                     <span class="aprend-note-date">${dateStr}</span>
                 </div>
                 ${isAprend ? '<div class="aprend-type-badge">🧠 aprendizado</div>' : ''}
+                ${isNota ? '<div class="aprend-type-badge aprend-type-badge--nota">📝 nota</div>' : ''}
                 <div class="aprend-note-preview">${escHtml(preview)}${hasAttach ? ' 📎' : ''}</div>
             </div>`;
         }).join('');
@@ -576,14 +579,17 @@ const Aprendizados = (() => {
             const dateStr   = formatRelative(note.updatedAt);
             const hasAttach = (note.attachments || []).length > 0;
             const isAprend  = note.type === 'aprendizado';
+            const isNota    = note.type === 'nota' || note.type === 'notas';
+            const extraClass = isAprend ? ' aprend-note-card--aprendizado' : (isNota ? ' aprend-note-card--nota' : '');
             return `
-            <div class="aprend-note-card${isAprend ? ' aprend-note-card--aprendizado' : ''}" data-note-id="${escHtml(note.id)}" data-cat="${cat}" data-item-id="${escHtml(itemId)}">
+            <div class="aprend-note-card${extraClass}" data-note-id="${escHtml(note.id)}" data-cat="${cat}" data-item-id="${escHtml(itemId)}">
                 <div class="aprend-note-card-top">
                     <span class="aprend-note-title">${escHtml(note.title || 'Sem título')}</span>
                     <span class="aprend-note-date">${dateStr}</span>
                 </div>
                 <div class="aprend-note-breadcrumb" style="font-size:0.7rem;opacity:0.55;margin:1px 0 3px;">${escHtml(catLabel)} › ${escHtml(cleanName)}</div>
                 ${isAprend ? '<div class="aprend-type-badge">🧠 aprendizado</div>' : ''}
+                ${isNota ? '<div class="aprend-type-badge aprend-type-badge--nota">📝 nota</div>' : ''}
                 <div class="aprend-note-preview">${escHtml(preview)}${hasAttach ? ' 📎' : ''}</div>
             </div>`;
         }).join('');
@@ -1880,11 +1886,13 @@ const Aprendizados = (() => {
             concluido:    '✅ Concluídos',
             bloqueado:    '🚫 Bloqueados',
             parcialmente: '⏳ Parcialmente',
+            notas:        '📝 Notas',
         };
         const TYPES = {
             concluido:    'concluido',
             bloqueado:    'bloqueado',
             parcialmente: 'parcialmente',
+            notas:        'nota',
         };
 
         const title = TITLES[type] || ('📝 ' + type);
@@ -1933,9 +1941,9 @@ const Aprendizados = (() => {
         const content = lines.slice(contentStart).join('\n').trim();
         const note = {
             id: uuid(),
-            title: title || '🧠 Aprendizado',
+            title: title || '📝 Nota',
             content: content || _stripBlankLines(text),
-            type: 'aprendizado',
+            type: 'nota',
             checkedLines: {},
             attachments: [],
             createdAt: nowISO(),

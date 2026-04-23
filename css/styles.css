@@ -543,6 +543,7 @@ body {
     .custom-status[data-status="concluido-ongoing"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: #60a5fa; border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(96,165,250,0.4); }
     .custom-status[data-status="parcialmente"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(34,197,94,0.4); }
     .custom-status[data-status="prioridade"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: var(--secondary); border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(124,58,237,0.4); }
+    .custom-status[data-status="notas"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: #ffd700; border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(255,215,0,0.4); }
     .custom-status[data-status="none"] .custom-status-btn::before { content: ''; width: 12px; height: 12px; background: transparent; border: 2px solid var(--border); border-radius: 50%; display: inline-block; margin-right: 6px; }
 
     /* Mic button smaller and compact */
@@ -866,6 +867,7 @@ mark.tsf-highlight {
 .tsf-btn[data-status="nao-feito"]::before     { background: #9e9e9e; }
 .tsf-btn[data-status="bloqueado"]::before     { background: #e91e63; }
 .tsf-btn[data-status="pular"]::before         { background: rgba(149,211,238,0.4); }
+.tsf-btn[data-status="notas"]::before         { background: #ffd700; }
 
 .tsf-btn.tsf-active[data-status="prioridade"]   { border-color: #ff4444; color: #ff4444; background: rgba(255,68,68,0.12); }
 .tsf-btn.tsf-active[data-status="em-andamento"] { border-color: #ffd700; color: #ffd700; background: rgba(255,215,0,0.10); }
@@ -875,6 +877,7 @@ mark.tsf-highlight {
 .tsf-btn.tsf-active[data-status="nao-feito"]    { border-color: #9e9e9e; color: #9e9e9e; background: rgba(158,158,158,0.12); }
 .tsf-btn.tsf-active[data-status="bloqueado"]    { border-color: #e91e63; color: #e91e63; background: rgba(233,30,99,0.12); }
 .tsf-btn.tsf-active[data-status="pular"]        { border-color: rgba(149,211,238,0.5); color: rgba(149,211,238,0.7); }
+.tsf-btn.tsf-active[data-status="notas"]        { border-color: #ffd700; color: #ffd700; background: rgba(255,215,0,0.12); }
 
 /* ── Aprendizados Picker (botão + dropdown na quick-nav) ───── */
 .aprendizados-picker-wrap {
@@ -1232,10 +1235,10 @@ mark.tsf-highlight {
 .item.status-parcialmente { 
     border-left-color: #22c55e;
 }
-.item.status-prioridade { 
+.item.status-prioridade {
     border-left-color: #7c3aed;
 }
-.item.status-none { 
+.item.status-none {
     border-left-color: var(--status-neutro);
 }
 
@@ -1888,6 +1891,12 @@ mark.tsf-highlight {
     background: rgba(249, 115, 22, 0.15);
     color: #fb923c;
     border: 1px solid rgba(249, 115, 22, 0.35);
+}
+
+.status-note-tag--nota {
+    background: rgba(255, 215, 0, 0.15);
+    color: #ffd700;
+    border: 1px solid rgba(255, 215, 0, 0.35);
 }
 
 /* Bloqueado popup accent */
@@ -5131,6 +5140,12 @@ mark.tsf-highlight {
 .aprend-note-card--aprendizado:hover {
     border-left-color: #4ade80;
 }
+.aprend-note-card--nota {
+    border-left-color: rgba(255, 215, 0, 0.5);
+}
+.aprend-note-card--nota:hover {
+    border-left-color: #ffd700;
+}
 .aprend-type-badge {
     display: inline-block;
     font-size: 0.68rem;
@@ -5142,6 +5157,11 @@ mark.tsf-highlight {
     border: 1px solid rgba(34, 197, 94, 0.3);
     margin-bottom: 4px;
     letter-spacing: 0.02em;
+}
+.aprend-type-badge--nota {
+    background: rgba(255, 215, 0, 0.13);
+    color: #ffd700;
+    border-color: rgba(255, 215, 0, 0.3);
 }
 .aprend-note-card-top {
     display: flex;

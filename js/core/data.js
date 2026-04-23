@@ -65,7 +65,8 @@ const STATUS_CONFIG = {
     'pular': { emoji: '', label: 'Pular', score: null },
     'concluido-ongoing': { emoji: '', label: 'Concluído/On going time', score: 1 },
     'parcialmente': { emoji: '', label: 'Parcialmente concluído', score: 0.7 },
-    'prioridade': { emoji: '', label: 'Prioridade', score: 0 }
+    'prioridade': { emoji: '', label: 'Prioridade', score: 0 },
+    'notas': { emoji: '📝', label: 'Nota', score: null }
 };
 
 // Snapshot imutável dos itens originais — usado por applySettings() para rebuild

@@ -739,6 +739,9 @@ Object.assign(HabitTrackerApp.prototype, {
             } else if (trimmed.startsWith('⏳')) {
                 const content = trimmed.slice(2).trim();
                 tagParts.push(`<span class="status-note-tag status-note-tag--parcialmente">⏳ ${this._escapeHtml(content)}</span>`);
+            } else if (trimmed.startsWith('📝')) {
+                const content = trimmed.slice(2).trim();
+                tagParts.push(`<span class="status-note-tag status-note-tag--nota">📝 ${this._escapeHtml(content)}</span>`);
             } else {
                 const urlRegex = /(https?:\/\/[^\s\]]+)/g;
                 const parts = line.split(urlRegex);
@@ -784,6 +787,9 @@ Object.assign(HabitTrackerApp.prototype, {
             } else if (trimmed.startsWith('⏳')) {
                 const content = trimmed.slice(2).trim();
                 tagParts.push(`<span class="status-note-tag status-note-tag--parcialmente">⏳ ${this._escapeHtml(content)}</span>`);
+            } else if (trimmed.startsWith('📝')) {
+                const content = trimmed.slice(2).trim();
+                tagParts.push(`<span class="status-note-tag status-note-tag--nota">📝 ${this._escapeHtml(content)}</span>`);
             } else {
                 const urlRegex = /(https?:\/\/[^\s\]]+)/g;
                 const parts = line.split(urlRegex);
