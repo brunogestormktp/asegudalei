@@ -45,7 +45,7 @@ Object.assign(HabitTrackerApp.prototype, {
     },
 
     // Show popup asking for the learning/aprendizado when an item is marked as concluido
-    showAprendizadoPopup(category, itemId, itemName) {
+    showAprendizadoPopup(category, itemId, itemName, dateStr = null) {
         return new Promise((resolve) => {
             const modal = document.getElementById('aprendizadoModal');
             const input = document.getElementById('aprendizadoInput');
@@ -82,17 +82,18 @@ Object.assign(HabitTrackerApp.prototype, {
                 const text = input.value.trim();
                 if (!text) return;
                 cleanup();
-                // Save to aprendizados tab
-                if (typeof Aprendizados !== 'undefined' && text) {
+                const targetDate = dateStr || this.getDateString();
+                const isToday = targetDate === this.getDateString(new Date());
+                // Save to aprendizados fixed note only if today
+                if (isToday && typeof Aprendizados !== 'undefined' && text) {
                     Aprendizados.addToFixedNote(category, itemId, 'concluido', text);
                 }
-                // Save to history: append 🧠 note to today's item record
-                const dateStr = this.getDateString();
-                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                // Save to history: append 🧠 note to the item's date record
+                const existing = await StorageManager.getItemStatus(targetDate, category, itemId);
                 const prevNote = existing.note ? existing.note.trim() : '';
                 const aprendNote = `🧠 ${text}`;
                 const newNote = prevNote ? `${prevNote}\n${aprendNote}` : aprendNote;
-                await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'concluido', newNote);
+                await StorageManager.saveItemStatus(targetDate, category, itemId, existing.status || 'concluido', newNote);
                 resolve(text);
             };
 
@@ -100,17 +101,18 @@ Object.assign(HabitTrackerApp.prototype, {
                 const text = input.value.trim();
                 if (!text) return;
                 cleanup();
-                // Append to fixed note "📝 Notas" (same pattern as Concluídos/Bloqueados)
-                if (typeof Aprendizados !== 'undefined' && text) {
+                const targetDate = dateStr || this.getDateString();
+                const isToday = targetDate === this.getDateString(new Date());
+                // Append to fixed note only if today
+                if (isToday && typeof Aprendizados !== 'undefined' && text) {
                     Aprendizados.addToFixedNote(category, itemId, 'notas', text);
                 }
-                // Also save first line to history with 📝
-                const dateStr = this.getDateString();
-                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                // Save to history with 📝
+                const existing = await StorageManager.getItemStatus(targetDate, category, itemId);
                 const prevNote = existing.note ? existing.note.trim() : '';
                 const notaEntry = `📝 ${text.split('\n')[0]}`;
                 const newNote = prevNote ? `${prevNote}\n${notaEntry}` : notaEntry;
-                await StorageManager.saveItemStatus(dateStr, category, itemId, 'notas', newNote);
+                await StorageManager.saveItemStatus(targetDate, category, itemId, 'notas', newNote);
                 // Navigate to aprendizados tab
                 if (typeof App !== 'undefined') App.showView('aprendizados');
                 resolve(text);
@@ -131,7 +133,7 @@ Object.assign(HabitTrackerApp.prototype, {
     },
 
     // Show popup asking for the reason when an item is marked as bloqueado
-    showBloqueadoPopup(category, itemId) {
+    showBloqueadoPopup(category, itemId, dateStr = null) {
         return new Promise((resolve) => {
             const modal = document.getElementById('bloqueadoModal');
             const input = document.getElementById('bloqueadoInput');
@@ -166,17 +168,18 @@ Object.assign(HabitTrackerApp.prototype, {
                 const text = input.value.trim();
                 if (!text || text.length < 5) return;
                 cleanup();
-                // Save to aprendizados tab
-                if (typeof Aprendizados !== 'undefined' && text) {
+                const targetDate = dateStr || this.getDateString();
+                const isToday = targetDate === this.getDateString(new Date());
+                // Save to aprendizados fixed note only if today
+                if (isToday && typeof Aprendizados !== 'undefined' && text) {
                     Aprendizados.addToFixedNote(category, itemId, 'bloqueado', text);
                 }
-                // Append 🚫 reason to the note
-                const dateStr = this.getDateString();
-                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                // Append 🚫 reason to the date's item record
+                const existing = await StorageManager.getItemStatus(targetDate, category, itemId);
                 const prevNote = existing.note ? existing.note.trim() : '';
                 const bloqNote = `🚫 ${text}`;
                 const newNote = prevNote ? `${prevNote}\n${bloqNote}` : bloqNote;
-                await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'bloqueado', newNote);
+                await StorageManager.saveItemStatus(targetDate, category, itemId, existing.status || 'bloqueado', newNote);
                 resolve(text);
             };
 
@@ -194,7 +197,7 @@ Object.assign(HabitTrackerApp.prototype, {
     },
 
     // Show popup asking what's missing when an item is marked as parcialmente
-    showParcialmentePopup(category, itemId) {
+    showParcialmentePopup(category, itemId, dateStr = null) {
         return new Promise((resolve) => {
             const modal = document.getElementById('parcialmenteModal');
             const input = document.getElementById('parcialmenteInput');
@@ -229,17 +232,18 @@ Object.assign(HabitTrackerApp.prototype, {
                 const text = input.value.trim();
                 if (!text || text.length < 5) return;
                 cleanup();
-                // Save to aprendizados tab
-                if (typeof Aprendizados !== 'undefined' && text) {
+                const targetDate = dateStr || this.getDateString();
+                const isToday = targetDate === this.getDateString(new Date());
+                // Save to aprendizados fixed note only if today
+                if (isToday && typeof Aprendizados !== 'undefined' && text) {
                     Aprendizados.addToFixedNote(category, itemId, 'parcialmente', text);
                 }
-                // Append ⏳ pending note to today's item record
-                const dateStr = this.getDateString();
-                const existing = await StorageManager.getItemStatus(dateStr, category, itemId);
+                // Append ⏳ pending note to the date's item record
+                const existing = await StorageManager.getItemStatus(targetDate, category, itemId);
                 const prevNote = existing.note ? existing.note.trim() : '';
                 const parcNote = `⏳ ${text}`;
                 const newNote = prevNote ? `${prevNote}\n${parcNote}` : parcNote;
-                await StorageManager.saveItemStatus(dateStr, category, itemId, existing.status || 'parcialmente', newNote);
+                await StorageManager.saveItemStatus(targetDate, category, itemId, existing.status || 'parcialmente', newNote);
                 resolve(text);
             };
 

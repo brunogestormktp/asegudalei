@@ -142,31 +142,48 @@ Object.assign(HabitTrackerApp.prototype, {
                 blockEl.dataset.status = opt.key;
 
                 const todayStr = this.getDateString(new Date());
-                if (opt.key === 'concluido' && dateStr === todayStr) {
-                    this.showAprendizadoPopup(category, itemId, item?.name || itemId)
-                        .then(() => {
-                            this._todayScrollTop = window.scrollY;
-                            this._pendingScrollRestore = true;
-                            this.renderTodayView();
+                const isPastDay = dateStr !== todayStr;
+
+                if (opt.key === 'concluido') {
+                    this.showAprendizadoPopup(category, itemId, item?.name || itemId, dateStr)
+                        .then((savedNote) => {
+                            if (!isPastDay) {
+                                this._todayScrollTop = window.scrollY;
+                                this._pendingScrollRestore = true;
+                                this.renderTodayView();
+                            } else if (savedNote) {
+                                const prev = blockEl.dataset.note || '';
+                                blockEl.dataset.note = prev ? `${prev}\n🧠 ${savedNote}` : `🧠 ${savedNote}`;
+                            }
                         });
                 }
-                if (opt.key === 'bloqueado' && dateStr === todayStr) {
-                    this.showBloqueadoPopup(category, itemId)
-                        .then(() => {
-                            this._todayScrollTop = window.scrollY;
-                            this._pendingScrollRestore = true;
-                            this.renderTodayView();
+                if (opt.key === 'bloqueado') {
+                    this.showBloqueadoPopup(category, itemId, dateStr)
+                        .then((savedNote) => {
+                            if (!isPastDay) {
+                                this._todayScrollTop = window.scrollY;
+                                this._pendingScrollRestore = true;
+                                this.renderTodayView();
+                            } else if (savedNote) {
+                                const prev = blockEl.dataset.note || '';
+                                blockEl.dataset.note = prev ? `${prev}\n🚫 ${savedNote}` : `🚫 ${savedNote}`;
+                            }
                         });
                 }
-                if (opt.key === 'parcialmente' && dateStr === todayStr) {
-                    this.showParcialmentePopup(category, itemId)
-                        .then(() => {
-                            this._todayScrollTop = window.scrollY;
-                            this._pendingScrollRestore = true;
-                            this.renderTodayView();
+                if (opt.key === 'parcialmente') {
+                    this.showParcialmentePopup(category, itemId, dateStr)
+                        .then((savedNote) => {
+                            if (!isPastDay) {
+                                this._todayScrollTop = window.scrollY;
+                                this._pendingScrollRestore = true;
+                                this.renderTodayView();
+                            } else if (savedNote) {
+                                const prev = blockEl.dataset.note || '';
+                                blockEl.dataset.note = prev ? `${prev}\n⏳ ${savedNote}` : `⏳ ${savedNote}`;
+                            }
                         });
                 }
-                if (dateStr === todayStr) {
+                if (!isPastDay) {
                     this._todayScrollTop = window.scrollY;
                     this._pendingScrollRestore = true;
                     this.renderTodayView();
